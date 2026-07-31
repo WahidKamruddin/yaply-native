@@ -41,17 +41,18 @@ once, at the app entry point, before anything else touches crypto).
    in one transaction). It rejects an empty envelope array or a NULL iv.
 
 Key agreement is raw ECDH — **no HKDF** (same as web and the deprecated iOS
-app):
+app). Confirmed against `@noble/curves@2.2.0`'s actual return shape (see
+`src/crypto/envelope.ts`):
 ```ts
-// noble/curves gives the raw ECDH shared secret bytes directly.
-const sharedSecret = p256.getSharedSecret(ephemeralPrivKey, devicePubKeyPoint)
-// The x-coordinate of the shared point IS the AES-256-GCM key — no HKDF.
-const kek = sharedSecret.slice(1, 33) // getSharedSecret returns 0x04||x||y||... depending on API; extract raw x
+// p256.getSharedSecret(priv, pub, false) returns the full uncompressed shared
+// point: 0x04 || x[32] || y[32], 65 bytes. The x-coordinate IS the raw
+// AES-256-GCM key — no HKDF, matching WebCrypto's ECDH deriveKey behavior.
+const shared = p256.getSharedSecret(myScalar, theirPoint, false)
+const kek = shared.slice(1, 1 + 32) // x-coordinate only
 ```
-(Confirm the exact byte layout `@noble/curves` returns for `getSharedSecret`
-against a known-answer test — see the verification harness below — before
-trusting this snippet blindly; noble's return shape has varied across major
-versions.)
+Verified byte-identical to web's `crypto.subtle`-derived KEK via the
+cross-runtime interop script below (not just "looks equivalent" — an envelope
+sealed by web is actually decrypted by native and vice versa).
 
 **JWK encoding (the one genuinely new piece of code here):** the DB stores
 public keys and fingerprints as WebCrypto JWK (`{kty:"EC", crv:"P-256", x, y,
@@ -211,11 +212,15 @@ app/                          ← Expo Router routes
 
 ## Project Structure
 
+Target end-state layout; `crypto/`, `lib/supabase.ts`, and the chat `useEncryption` hook exist as of Phase 1, everything else under `features/` is still to come.
+
 ```
 yaply-native/
 ├── app/                       ← Expo Router routes (see Architecture above)
+├── scripts/
+│   └── verify-web-interop.ts  ← dev-only cross-runtime crypto check, `npm run verify:interop`
 ├── src/
-│   ├── crypto/                ← keys.ts, envelope.ts, keyStore.ts (see Encryption section)
+│   ├── crypto/                ← base64.ts, jwk.ts, keys.ts, envelope.ts, keyStore.ts (see Encryption section)
 │   ├── lib/
 │   │   └── supabase.ts        ← Supabase client singleton
 │   ├── features/
@@ -265,11 +270,17 @@ native-only config, but isn't the mechanism for these three values.)
 
 ## Feature Map
 
-### Not yet implemented (this is a fresh app — nothing is built yet)
+Full feature parity with the deprecated iOS app is the goal, phased as:
 
-Full feature parity with the deprecated iOS app is the goal, phased roughly as:
-1. Encryption layer (crypto wire format v2)
-2. Auth, conversation list, DMs/groups, realtime messaging
+### Implemented
+
+| Phase | Feature | Files |
+|---|---|---|
+| 1 | Encryption layer (crypto wire format v2) | `src/crypto/{base64,jwk,keys,envelope,keyStore}.ts`, `src/features/chat/hooks/useEncryption.ts` — verified byte-interoperable with web via `scripts/verify-web-interop.ts` (`npm run verify:interop`) |
+
+### Not yet implemented
+
+2. Auth, conversation list, DMs/groups, realtime messaging (`src/lib/supabase.ts` exists; screens are still placeholders)
 3. Slash commands, system messages
 4. Design system + Messenger-esque interaction layer (bubbles, gestures, reactions)
 5. Tier 3/4 features: Tasks, Notes, Reminders, Events (with availability calendar), Albums, Budgets + Splitwise, Stickers
