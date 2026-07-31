@@ -1,7 +1,11 @@
 import { Redirect } from 'expo-router'
+import { useAuth } from '../src/features/auth/useAuth'
 
-// Placeholder root route. Phase 2 replaces this with a real auth gate
-// (redirect to /(auth)/sign-in when logged out, /(tabs) when logged in).
+// Root route: sends signed-in users to the conversation list, signed-out
+// users to sign-in. Stack.Protected in _layout.tsx enforces the actual
+// access control; this just picks where "/" lands.
 export default function Index() {
-  return <Redirect href="/(tabs)" />
+  const { user, loading } = useAuth()
+  if (loading) return null
+  return <Redirect href={user ? '/(tabs)' : '/(auth)/sign-in'} />
 }

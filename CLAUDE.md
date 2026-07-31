@@ -194,15 +194,20 @@ The migrations in `../supabase/migrations/` are the source of truth. Same DB, sa
 
 ```
 app/                          ← Expo Router routes
-  _layout.tsx                 ← root layout, providers (QueryClient, Jotai, auth gate)
+  _layout.tsx                 ← root layout: QueryClientProvider, Stack.Protected auth gate, kicks off device registration
+  index.tsx                   ← redirects to (tabs) or (auth)/sign-in based on session
   (auth)/
     sign-in.tsx
     sign-up.tsx
   (tabs)/
-    index.tsx                 ← conversation list
+    index.tsx                 ← conversation list (search-to-DM, unread badges)
   chat/
-    [id].tsx                  ← chat screen
+    [id].tsx                  ← chat screen (paginated, realtime, reply, soft-delete)
 ```
+
+Auth gating uses Expo Router's `<Stack.Protected guard={...}>` (SDK 52+) rather
+than manual redirects scattered per-screen — `(auth)` is only reachable when
+signed out, `(tabs)`/`chat/[id]` only when signed in.
 
 **Pattern:** function components + hooks. Server state via TanStack Query hooks (`useConversations`, `useMessages`, ...), UI state via Jotai atoms. No ViewModel layer — React's own component/hook model replaces the MVVM pattern the deprecated iOS app used, since that pattern existed to compensate for SwiftUI's constraints, not because it's part of the cross-platform contract.
 
@@ -277,14 +282,15 @@ Full feature parity with the deprecated iOS app is the goal, phased as:
 | Phase | Feature | Files |
 |---|---|---|
 | 1 | Encryption layer (crypto wire format v2) | `src/crypto/{base64,jwk,keys,envelope,keyStore}.ts`, `src/features/chat/hooks/useEncryption.ts` — verified byte-interoperable with web via `scripts/verify-web-interop.ts` (`npm run verify:interop`) |
+| 2 | Auth, conversation list, DM creation + user search, chat screen (paginated, realtime, reply, soft-delete) | `src/features/auth/useAuth.ts`, `app/(auth)/{sign-in,sign-up}.tsx`, `src/features/chat/{api,hooks}/*`, `app/(tabs)/index.tsx`, `app/chat/[id].tsx`. Device registration is kicked off once in `app/_layout.tsx` (not per-screen) — safe because of `useEncryption`'s single-flight guard. Chat screen works for any conversation (DM or group) once one exists — encryption/decryption/pagination/realtime are conversation-type-agnostic, matching web. Styling is placeholder `theme.ts` tokens, not the Phase 4 design pass. |
 
 ### Not yet implemented
 
-2. Auth, conversation list, DMs/groups, realtime messaging (`src/lib/supabase.ts` exists; screens are still placeholders)
-3. Slash commands, system messages
-4. Design system + Messenger-esque interaction layer (bubbles, gestures, reactions)
-5. Tier 3/4 features: Tasks, Notes, Reminders, Events (with availability calendar), Albums, Budgets + Splitwise, Stickers
-6. Media upload, GIF picker, remote push notifications — deferred, matching web's own "not yet integrated" status for these; do not build ahead of what web itself has shipped.
+- **Group creation UI** — no multi-select member picker / `create_group_conversation` RPC call yet, only DM creation via user search. Existing groups (created elsewhere) work fine in the chat screen; there's just no way to create one from this app yet.
+- **Phase 3** — Slash commands, system messages (chat screen currently only renders `type='system'` messages as plain centered text with no tab-link/auto-destruct handling yet)
+- **Phase 4** — Design system + Messenger-esque interaction layer (bubbles, gestures, reactions)
+- **Phase 5** — Tier 3/4 features: Tasks, Notes, Reminders, Events (with availability calendar), Albums, Budgets + Splitwise, Stickers
+- **Phase 6** — Media upload, GIF picker, remote push notifications — deferred, matching web's own "not yet integrated" status for these; do not build ahead of what web itself has shipped.
 
 ---
 
