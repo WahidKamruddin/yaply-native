@@ -2,6 +2,7 @@
   "expo": {
     "name": "yaply-native",
     "slug": "yaply-native",
+    "scheme": "yaply",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,6 +21,10 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-router"
+    ]
   }
 }
