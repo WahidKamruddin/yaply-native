@@ -201,6 +201,24 @@ export async function createDirectConversation(otherUserId: string): Promise<str
   return data as string
 }
 
+// null = mute forever (matches the schema's documented convention: null
+// `muted_until` means not muted, so "forever" is encoded as a far-future
+// timestamp rather than a literal null in the column itself).
+const MUTE_FOREVER = new Date(8640000000000).toISOString()
+
+export async function muteConversation(
+  conversationId: string,
+  userId: string,
+  mutedUntil: Date | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from('conversation_members')
+    .update({ muted_until: mutedUntil ? mutedUntil.toISOString() : MUTE_FOREVER })
+    .eq('conversation_id', conversationId)
+    .eq('user_id', userId)
+  if (error) throw error
+}
+
 export async function searchUsers(query: string, currentUserId: string): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')

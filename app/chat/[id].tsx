@@ -21,7 +21,9 @@ import { useEncryption, getMyFingerprint, decodePhase1 } from '../../src/feature
 import type { DbEnvelope } from '../../src/features/chat/hooks/useEncryption'
 import { sendMessage, fetchEnvelopesForMessages, deleteMessage } from '../../src/features/chat/api/messages'
 import { markConversationRead } from '../../src/features/chat/api/conversations'
-import { replyToMessageIdAtom } from '../../src/features/chat/store/chat.atoms'
+import { replyToMessageIdAtom, commandFeedbackAtom } from '../../src/features/chat/store/chat.atoms'
+import { parseCommand } from '../../src/features/commands/commandParser'
+import { executeCommand } from '../../src/features/commands/commandRegistry'
 import { theme } from '../../src/theme'
 import type { DbMessage, DecryptedMessage } from '../../src/features/chat/types'
 
@@ -36,6 +38,7 @@ export default function Chat() {
   const { encrypt, decryptV2 } = useEncryption(user?.id)
 
   const [replyId, setReplyId] = useAtom(replyToMessageIdAtom)
+  const [feedback, setFeedback] = useAtom(commandFeedbackAtom)
   const [text, setText] = useState('')
   const [decrypted, setDecrypted] = useState<DecryptedMessage[]>([])
   const decryptCacheRef = useRef(new Map<string, string | null>())
@@ -144,6 +147,27 @@ export default function Chat() {
     const body = text.trim()
     if (!body || !conversationId || !user || !meta) return
     setText('')
+    setFeedback(null)
+
+    // Slash commands never enter the conversation as a message — parse and
+    // dispatch instead of encrypting/sending. Feedback is shown only to the
+    // typing user (commandFeedbackAtom), never written to the DB.
+    const parsed = parseCommand(body)
+    if (parsed) {
+      try {
+        await executeCommand(parsed.name, {
+          conversationId,
+          userId: user.id,
+          args: parsed.args,
+          showLocalFeedback: setFeedback,
+        })
+      } catch (err) {
+        console.error('[yaply] command failed', err)
+        setFeedback('Something went wrong running that command.')
+      }
+      return
+    }
+
     const capturedReplyId = replyId
     setReplyId(null)
 
@@ -162,7 +186,7 @@ export default function Chat() {
           }
         : { conversationId, senderId: user.id, content: result.content, iv: null, type: 'text', replyToId: capturedReplyId },
     )
-  }, [text, conversationId, user, meta, replyId, encrypt, sendMutation, setReplyId])
+  }, [text, conversationId, user, meta, replyId, encrypt, sendMutation, setReplyId, setFeedback])
 
   const onLongPressMessage = useCallback(
     (msg: DecryptedMessage) => {
@@ -208,13 +232,30 @@ export default function Chat() {
         renderItem={({ item }) => {
           const isMine = item.senderId === user?.id
           const isSystem = item.type === 'system'
+
           if (isSystem) {
+            // System messages auto-destruct 7 days after insert (set at
+            // insert time, read here — no client-side scheduling). Expired
+            // ones are hidden silently, never shown as "message deleted".
+            const expired = !!item.deletedAt && new Date(item.deletedAt) <= new Date()
+            if (expired) return null
             return (
               <View style={styles.systemRow}>
                 <Text style={styles.systemText}>{item.decryptFailed ? "Couldn't decrypt" : item.content}</Text>
               </View>
             )
           }
+
+          if (item.deletedAt) {
+            return (
+              <View style={[styles.bubbleRow, isMine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}>
+                <View style={[styles.bubble, styles.bubbleDeleted]}>
+                  <Text style={styles.bubbleTextDeleted}>Message deleted</Text>
+                </View>
+              </View>
+            )
+          }
+
           return (
             <Pressable
               onPress={() => setReplyId(item.id)}
@@ -228,6 +269,15 @@ export default function Chat() {
           )
         }}
       />
+
+      {feedback && (
+        <View style={styles.replyStrip}>
+          <Text style={styles.replyText}>{feedback}</Text>
+          <Pressable onPress={() => setFeedback(null)}>
+            <Text style={styles.replyCancel}>✕</Text>
+          </Pressable>
+        </View>
+      )}
 
       {replyId && (
         <View style={styles.replyStrip}>
@@ -276,7 +326,9 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: '78%', borderRadius: theme.radii.bubble, paddingHorizontal: 14, paddingVertical: 8 },
   bubbleMine: { backgroundColor: theme.colors.bubbleOwn },
   bubbleTheirs: { backgroundColor: theme.colors.bubbleOther },
+  bubbleDeleted: { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.colors.textMuted },
   bubbleText: { color: theme.colors.text, fontSize: 15 },
+  bubbleTextDeleted: { color: theme.colors.textMuted, fontSize: 15, fontStyle: 'italic' },
   systemRow: { alignItems: 'center', marginVertical: 6 },
   systemText: { color: theme.colors.textMuted, fontSize: 12 },
   replyStrip: {

@@ -76,4 +76,7 @@ export interface SendMessageParams {
   threadId?: string | null
   mediaUrl?: string | null
   mediaMime?: string | null
+  // Set for system messages: auto-destruct timestamp (now + 7 days at
+  // insert). Read client-side to hide expired system messages silently.
+  deletedAt?: string | null
 }
