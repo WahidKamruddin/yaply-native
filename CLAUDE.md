@@ -308,7 +308,15 @@ Full feature parity with the deprecated iOS app is the goal, phased as:
 
 - **Group creation UI** — no multi-select member picker / `create_group_conversation` RPC call yet, only DM creation via user search. Existing groups (created elsewhere) work fine in the chat screen; there's just no way to create one from this app yet.
 - **Per-conversation accent color is display-only** — `colorForConversation` drives avatars everywhere but there's no settings UI to let a user override the deterministic color, unlike Messenger's actual "pick a chat color" feature.
-- **Phase 6** — Media upload, GIF picker, stickers, remote push notifications — deferred, matching web's own "not yet integrated" status for media/GIF; do not build ahead of what web itself has shipped.
+
+### Phase 6 — Media, stickers & remote push (deferred by design, not started)
+
+None of this is built, and that's intentional: the root CLAUDE.md's own Feature Map lists both as "not yet integrated" on web itself — media upload has a service and drag-drop zone built but the picker in `ChatView` is a placeholder, and the GIF picker (`src/features/media/`) similarly has UI wired as a placeholder, neither actually reachable in the shipped web app. So there's no finished reference implementation to port yet. Building ahead of web here would mean inventing the contract instead of following one, which is the opposite of how every other phase in this doc worked. Specifically deferred:
+
+- **Media upload (images, files)** — needs a Supabase Storage upload path + the `media_url`/`media_mime` columns wired into `sendMessage` (already present in the type, unused). Blocked on web shipping this first.
+- **GIF picker (Giphy)** — same shape as media upload; needs a `GIPHY_API_KEY` (already in `.env.example`, unused so far) and a picker UI.
+- **Stickers** — `stickers` table exists in the schema but needs the same Storage plumbing as media upload before a picker means anything (see Phase 5's note).
+- **Remote push notifications** — Phase 5 only does *local* scheduling (`expo-notifications`) for reminders on this device. Remote push (a message arriving while the app is backgrounded/closed) needs Expo push tokens registered somewhere, and `devices.push_subscription` currently holds web-push subscription JSON shape — accommodating an Expo token there is a schema/contract decision that hasn't been made yet, not just a missing feature. Flag this for a real decision before building, don't just shove a differently-shaped token into that column.
 
 ---
 
