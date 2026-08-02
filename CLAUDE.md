@@ -223,29 +223,33 @@ signed out, `(tabs)`/`chat/[id]` only when signed in.
 
 ## Project Structure
 
-Target end-state layout; `crypto/`, `lib/supabase.ts`, and the chat `useEncryption` hook exist as of Phase 1, everything else under `features/` is still to come.
+Reflects what's actually built through Phase 5; stickers/media (Phase 6) are the only pieces still purely aspirational.
 
 ```
 yaply-native/
-├── app/                       ← Expo Router routes (see Architecture above)
+├── app/                            ← Expo Router routes (see Architecture above)
+│   ├── (auth)/{sign-in,sign-up}.tsx
+│   ├── (tabs)/index.tsx            ← conversation list
+│   ├── chat/[id].tsx                ← chat screen
+│   └── panel/[id].tsx               ← "conversation tools" tabbed screen (Tasks/Notes/Reminders/Events/Albums/Budgets)
 ├── scripts/
-│   └── verify-web-interop.ts  ← dev-only cross-runtime crypto check, `npm run verify:interop`
+│   └── verify-web-interop.ts       ← dev-only cross-runtime crypto check, `npm run verify:interop`
 ├── src/
-│   ├── crypto/                ← base64.ts, jwk.ts, keys.ts, envelope.ts, keyStore.ts (see Encryption section)
+│   ├── crypto/                     ← base64.ts, jwk.ts, keys.ts, envelope.ts, keyStore.ts (see Encryption section)
 │   ├── lib/
-│   │   └── supabase.ts        ← Supabase client singleton
+│   │   └── supabase.ts             ← Supabase client singleton
+│   ├── components/
+│   │   └── ConfirmDialog.tsx       ← generic animated confirm sheet, used by the panel's delete flows
 │   ├── features/
-│   │   ├── chat/               ← api/, components/, hooks/ (useConversations, useMessages, useEncryption, useRealtimeMessages)
-│   │   ├── commands/            ← slash command parser/handlers (hand-copied from web's packages/shared constants — see Relationship to yaply-ios)
-│   │   ├── tasks/
-│   │   ├── notes/
-│   │   ├── reminders/
-│   │   ├── events/
-│   │   ├── albums/
-│   │   ├── budgets/
-│   │   └── stickers/
-│   └── theme.ts                ← design tokens (see Design Direction)
-└── .env.example                 ← EXPO_PUBLIC_* vars, see Configuration
+│   │   ├── auth/useAuth.ts
+│   │   ├── chat/                   ← api/, components/ (MessageBubble, MessageActionSheet), hooks/, store/, types.ts
+│   │   ├── commands/                ← slash command parser/handlers
+│   │   └── productivity/
+│   │       ├── hooks/               ← useTasks, useNotes, useReminders, useEvents, useAlbums, useBudgets
+│   │       ├── notifications.ts     ← expo-notifications scheduling for reminders
+│   │       └── systemMessage.ts     ← posts the type='system' message on entity creation
+│   └── theme.ts                    ← design tokens + colorForConversation (see Design Direction)
+└── .env.example                    ← EXPO_PUBLIC_* vars, see Configuration
 ```
 
 ---
@@ -291,14 +295,20 @@ Full feature parity with the deprecated iOS app is the goal, phased as:
 | 2 | Auth, conversation list, DM creation + user search, chat screen (paginated, realtime, reply, soft-delete) | `src/features/auth/useAuth.ts`, `app/(auth)/{sign-in,sign-up}.tsx`, `src/features/chat/{api,hooks}/*`, `app/(tabs)/index.tsx`, `app/chat/[id].tsx`. Device registration is kicked off once in `app/_layout.tsx` (not per-screen) — safe because of `useEncryption`'s single-flight guard. Chat screen works for any conversation (DM or group) once one exists — encryption/decryption/pagination/realtime are conversation-type-agnostic, matching web. |
 | 3 | Slash commands (`/help`, `/remind`, `/mute`) + system message auto-destruct | `src/features/commands/{commandParser,commands,commandRegistry}.ts`, `src/features/commands/handlers/*`, wired into `app/chat/[id].tsx`'s composer. `/task`, `/note`, `/album`, `/budget`, `/plan`, `/poll`, `/event` are recognized but return "not available yet" — real creation is Phase 5's job (matches web's own `createHandler`, which just opens a modal; there's no modal system here yet). Expired (`deleted_at` in the past) system messages are hidden silently, matching web/iOS. Regular deleted messages render an italic "Message deleted" placeholder. **`/thread` is not implemented** — despite the root CLAUDE.md's Cross-Platform Reference section listing it, the actual web `commandRegistry.ts` has no `thread` case (threading is a UI action via reply, not a slash command) — verified by reading web's source directly rather than trusting that doc. |
 | 4 | Design system + Messenger-esque interaction layer | `theme.ts` (real palette + `colorForConversation`), `src/features/chat/components/{MessageBubble,MessageActionSheet}.tsx`, integrated into `app/chat/[id].tsx` and `app/(tabs)/index.tsx`. See Design Direction above for what shipped and what was deliberately simplified (single swipe direction, no custom font yet). |
+| 5 | Tasks, Notes, Reminders, Events (list/RSVP), Albums, Budgets — the "conversation tools" panel | `src/features/productivity/hooks/{useTasks,useNotes,useReminders,useEvents,useAlbums,useBudgets}.ts`, `src/features/productivity/{notifications,systemMessage}.ts`, `src/components/ConfirmDialog.tsx`, `app/panel/[id].tsx` (tabbed screen, iOS's `ConversationDetailView` equivalent), opened from a "Tools" header button in `app/chat/[id].tsx`. Creating a task/note/event/album/budget posts a `type='system'` message (phase-1 encoded, 7-day auto-destruct) — the only DB write beyond the entity itself, matching the root CLAUDE.md's invariant. System messages (from this app **or synced from web**) render an "Open {Tab} →" link that deep-links into the matching panel tab via `?tab=` — this works for web-created system messages too, not just ones this app produces. Reminders use local `expo-notifications` scheduling (`scheduleReminderNotification`, wired into `/remind`), not web's 60s poll. |
+
+### Not yet implemented / deliberately deferred within Phase 5
+
+- **Events availability calendar** — the when2meet-style heatmap grid (UTC slot-key contract, tap-to-toggle, creator confirm) is not built. The panel's Events tab only does list/quick-create (always planning-mode)/RSVP-once-confirmed/delete — confirming a date needs the calendar UI, so there's no path to `status='confirmed'` from this app yet.
+- **Splitwise export** — genuinely out of scope without OAuth client credentials, not a corner cut. Budgets/expenses are tracked locally only.
+- **Stickers** — reclassified into Phase 6 below (depends on the same Storage/media upload infrastructure as image messages, which doesn't exist yet either).
+- **Task/note/event "locked" field** — the live schema has a `locked boolean` column on tasks/notes/reminders/events/albums/budgets that isn't documented in the root CLAUDE.md's schema section (found while porting web's hooks). Not surfaced in the UI here — no edit-permission/locking feature, matching what's actually built rather than the incomplete doc.
 
 ### Not yet implemented
 
 - **Group creation UI** — no multi-select member picker / `create_group_conversation` RPC call yet, only DM creation via user search. Existing groups (created elsewhere) work fine in the chat screen; there's just no way to create one from this app yet.
-- **System message "Open {tab} →" links** — the tab-map hyperlink behavior documented for iOS isn't built here yet since there's nothing to link to until Phase 5 builds Tasks/Notes/etc. screens.
 - **Per-conversation accent color is display-only** — `colorForConversation` drives avatars everywhere but there's no settings UI to let a user override the deterministic color, unlike Messenger's actual "pick a chat color" feature.
-- **Phase 5** — Tier 3/4 features: Tasks, Notes, Reminders, Events (with availability calendar), Albums, Budgets + Splitwise, Stickers
-- **Phase 6** — Media upload, GIF picker, remote push notifications — deferred, matching web's own "not yet integrated" status for these; do not build ahead of what web itself has shipped.
+- **Phase 6** — Media upload, GIF picker, stickers, remote push notifications — deferred, matching web's own "not yet integrated" status for media/GIF; do not build ahead of what web itself has shipped.
 
 ---
 

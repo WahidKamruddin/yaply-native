@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
+import '../src/features/productivity/notifications'
 import { useAuth } from '../src/features/auth/useAuth'
 import { useEncryption } from '../src/features/chat/hooks/useEncryption'
 
@@ -29,6 +30,7 @@ function RootNavigator() {
       <Stack.Protected guard={!!user}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="chat/[id]" />
+        <Stack.Screen name="panel/[id]" options={{ presentation: 'modal' }} />
       </Stack.Protected>
     </Stack>
   )

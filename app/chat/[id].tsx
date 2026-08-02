@@ -19,6 +19,25 @@ import { MessageActionSheet } from '../../src/features/chat/components/MessageAc
 import { theme } from '../../src/theme'
 import type { DbMessage, DecryptedMessage } from '../../src/features/chat/types'
 
+// Content-pattern → panel tab, matching the deprecated iOS app's
+// systemMessageTabMap. Case-insensitive substring match against the decoded
+// system message text (e.g. "Task created: Buy milk").
+const SYSTEM_MESSAGE_TAB_MAP: Array<[RegExp, string]> = [
+  [/task created/i, 'Tasks'],
+  [/note created/i, 'Notes'],
+  [/reminder set/i, 'Reminders'],
+  [/(event|plan) created/i, 'Events'],
+  [/album created/i, 'Albums'],
+  [/budget created/i, 'Budgets'],
+]
+
+function tabForSystemMessage(content: string): string | null {
+  for (const [pattern, tab] of SYSTEM_MESSAGE_TAB_MAP) {
+    if (pattern.test(content)) return tab
+  }
+  return null
+}
+
 export default function Chat() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const conversationId = id ?? null
@@ -208,7 +227,9 @@ export default function Chat() {
         <Text style={styles.title} numberOfLines={1}>
           {title}
         </Text>
-        <View style={{ width: 50 }} />
+        <Pressable style={styles.panelButton} onPress={() => conversationId && router.push(`/panel/${conversationId}`)}>
+          <Text style={styles.panelButtonText}>Tools</Text>
+        </Pressable>
       </View>
 
       <FlatList
@@ -230,9 +251,15 @@ export default function Chat() {
             // ones are hidden silently, never shown as "message deleted".
             const expired = !!item.deletedAt && new Date(item.deletedAt) <= new Date()
             if (expired) return null
+            const linkTab = !item.decryptFailed ? tabForSystemMessage(item.content) : null
             return (
               <View style={styles.systemRow}>
                 <Text style={styles.systemText}>{item.decryptFailed ? "Couldn't decrypt" : item.content}</Text>
+                {linkTab && (
+                  <Pressable onPress={() => conversationId && router.push(`/panel/${conversationId}?tab=${linkTab}`)}>
+                    <Text style={styles.systemLink}>Open {linkTab} →</Text>
+                  </Pressable>
+                )}
               </View>
             )
           }
@@ -314,6 +341,8 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.sm,
   },
   back: { color: theme.colors.accent, width: 50 },
+  panelButton: { width: 50, alignItems: 'flex-end' },
+  panelButtonText: { color: theme.colors.accent, ...theme.type.label },
   title: { color: theme.colors.text, ...theme.type.heading, fontSize: 16, flex: 1, textAlign: 'center' },
   list: { flex: 1, paddingHorizontal: theme.spacing.sm },
   bubbleRow: { marginVertical: 3, flexDirection: 'row' },
@@ -330,6 +359,7 @@ const styles = StyleSheet.create({
   bubbleTextDeleted: { color: theme.colors.textMuted, ...theme.type.body, fontStyle: 'italic' },
   systemRow: { alignItems: 'center', marginVertical: 6 },
   systemText: { color: theme.colors.textMuted, ...theme.type.caption },
+  systemLink: { color: theme.colors.accent, ...theme.type.caption, fontWeight: '700', marginTop: 2 },
   replyStrip: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,5 +1,6 @@
 import { supabase } from '../../../lib/supabase'
 import { parseDateTimeArgs } from '../commandParser'
+import { scheduleReminderNotification } from '../../productivity/notifications'
 
 export interface RemindArgs {
   conversationId: string
@@ -22,14 +23,21 @@ export async function remindHandler({ conversationId, createdBy, args }: RemindA
   }
   if (remindAt.getTime() <= Date.now()) return 'That time is in the past. Pick a future date/time.'
 
-  const { error } = await supabase.from('reminders').insert({
-    conversation_id: conversationId,
-    user_id: createdBy,
-    message,
-    remind_at: remindAt.toISOString(),
-    status: 'pending',
-  })
+  const { data, error } = await supabase
+    .from('reminders')
+    .insert({ conversation_id: conversationId, user_id: createdBy, message, remind_at: remindAt.toISOString(), status: 'pending' })
+    .select('id')
+    .single()
   if (error) throw error
+
+  // Local scheduling (not web's 60s poll) — mirrors the deprecated iOS app's
+  // UNNotificationRequest approach, documented in CLAUDE.md. Best-effort: a
+  // denied permission shouldn't fail the command, just skip the notification.
+  try {
+    await scheduleReminderNotification(data.id, message, remindAt)
+  } catch (err) {
+    console.error('[yaply] failed to schedule reminder notification', err)
+  }
 
   const formatted = remindAt.toLocaleString('en-US', {
     month: 'short',
