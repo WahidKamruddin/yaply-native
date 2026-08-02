@@ -1,15 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native'
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useAtom } from 'jotai'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -24,6 +14,8 @@ import { markConversationRead } from '../../src/features/chat/api/conversations'
 import { replyToMessageIdAtom, commandFeedbackAtom } from '../../src/features/chat/store/chat.atoms'
 import { parseCommand } from '../../src/features/commands/commandParser'
 import { executeCommand } from '../../src/features/commands/commandRegistry'
+import { MessageBubble } from '../../src/features/chat/components/MessageBubble'
+import { MessageActionSheet } from '../../src/features/chat/components/MessageActionSheet'
 import { theme } from '../../src/theme'
 import type { DbMessage, DecryptedMessage } from '../../src/features/chat/types'
 
@@ -41,6 +33,7 @@ export default function Chat() {
   const [feedback, setFeedback] = useAtom(commandFeedbackAtom)
   const [text, setText] = useState('')
   const [decrypted, setDecrypted] = useState<DecryptedMessage[]>([])
+  const [actionTarget, setActionTarget] = useState<DecryptedMessage | null>(null)
   const decryptCacheRef = useRef(new Map<string, string | null>())
 
   const allDbMessages = useMemo<DbMessage[]>(() => pages?.pages.flatMap((p) => p.messages) ?? [], [pages])
@@ -188,23 +181,21 @@ export default function Chat() {
     )
   }, [text, conversationId, user, meta, replyId, encrypt, sendMutation, setReplyId, setFeedback])
 
-  const onLongPressMessage = useCallback(
-    (msg: DecryptedMessage) => {
-      if (msg.senderId !== user?.id) return
-      Alert.alert('Delete message?', undefined, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteMessage(msg.id)
-            void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] })
-          },
-        },
-      ])
-    },
-    [user, conversationId, queryClient],
-  )
+  const closeActionSheet = useCallback(() => setActionTarget(null), [])
+
+  const onDeleteConfirmed = useCallback(async () => {
+    if (!actionTarget) return
+    const messageId = actionTarget.id
+    setActionTarget(null)
+    await deleteMessage(messageId)
+    void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] })
+  }, [actionTarget, conversationId, queryClient])
+
+  const onReplyFromSheet = useCallback(() => {
+    if (!actionTarget) return
+    setReplyId(actionTarget.id)
+    setActionTarget(null)
+  }, [actionTarget, setReplyId])
 
   const title = meta?.name || meta?.members.find((m) => m.userId !== user?.id)?.profile.display_name || 'Chat'
 
@@ -249,7 +240,7 @@ export default function Chat() {
           if (item.deletedAt) {
             return (
               <View style={[styles.bubbleRow, isMine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}>
-                <View style={[styles.bubble, styles.bubbleDeleted]}>
+                <View style={styles.bubbleDeleted}>
                   <Text style={styles.bubbleTextDeleted}>Message deleted</Text>
                 </View>
               </View>
@@ -257,17 +248,22 @@ export default function Chat() {
           }
 
           return (
-            <Pressable
-              onPress={() => setReplyId(item.id)}
-              onLongPress={() => onLongPressMessage(item)}
-              style={[styles.bubbleRow, isMine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}
-            >
-              <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
-                <Text style={styles.bubbleText}>{item.decryptFailed ? "Couldn't decrypt this message" : item.content}</Text>
-              </View>
-            </Pressable>
+            <MessageBubble
+              message={item}
+              isMine={isMine}
+              onReply={() => setReplyId(item.id)}
+              onLongPress={() => setActionTarget(item)}
+            />
           )
         }}
+      />
+
+      <MessageActionSheet
+        visible={!!actionTarget}
+        canDelete={actionTarget?.senderId === user?.id}
+        onReply={onReplyFromSheet}
+        onDelete={onDeleteConfirmed}
+        onClose={closeActionSheet}
       />
 
       {feedback && (
@@ -318,19 +314,22 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.sm,
   },
   back: { color: theme.colors.accent, width: 50 },
-  title: { color: theme.colors.text, fontWeight: '700', fontSize: 16, flex: 1, textAlign: 'center' },
+  title: { color: theme.colors.text, ...theme.type.heading, fontSize: 16, flex: 1, textAlign: 'center' },
   list: { flex: 1, paddingHorizontal: theme.spacing.sm },
-  bubbleRow: { marginVertical: 2, flexDirection: 'row' },
+  bubbleRow: { marginVertical: 3, flexDirection: 'row' },
   bubbleRowMine: { justifyContent: 'flex-end' },
   bubbleRowTheirs: { justifyContent: 'flex-start' },
-  bubble: { maxWidth: '78%', borderRadius: theme.radii.bubble, paddingHorizontal: 14, paddingVertical: 8 },
-  bubbleMine: { backgroundColor: theme.colors.bubbleOwn },
-  bubbleTheirs: { backgroundColor: theme.colors.bubbleOther },
-  bubbleDeleted: { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.colors.textMuted },
-  bubbleText: { color: theme.colors.text, fontSize: 15 },
-  bubbleTextDeleted: { color: theme.colors.textMuted, fontSize: 15, fontStyle: 'italic' },
+  bubbleDeleted: {
+    maxWidth: 280,
+    borderRadius: theme.radii.bubble,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  bubbleTextDeleted: { color: theme.colors.textMuted, ...theme.type.body, fontStyle: 'italic' },
   systemRow: { alignItems: 'center', marginVertical: 6 },
-  systemText: { color: theme.colors.textMuted, fontSize: 12 },
+  systemText: { color: theme.colors.textMuted, ...theme.type.caption },
   replyStrip: {
     flexDirection: 'row',
     alignItems: 'center',

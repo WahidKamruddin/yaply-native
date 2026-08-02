@@ -6,7 +6,7 @@ import { useAuth } from '../../src/features/auth/useAuth'
 import { useConversations } from '../../src/features/chat/hooks/useConversations'
 import { createDirectConversation, searchUsers } from '../../src/features/chat/api/conversations'
 import { supabase } from '../../src/lib/supabase'
-import { theme } from '../../src/theme'
+import { theme, colorForConversation } from '../../src/theme'
 import type { ConversationListItem, Profile } from '../../src/features/chat/types'
 
 function conversationTitle(item: ConversationListItem, myUserId: string): string {
@@ -90,26 +90,30 @@ export default function ConversationList() {
         refreshing={isLoading}
         onRefresh={() => queryClient.invalidateQueries({ queryKey: ['conversations', user.id] })}
         ListEmptyComponent={!isLoading ? <Text style={styles.muted}>No conversations yet — search for someone above.</Text> : null}
-        renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => router.push(`/chat/${item.id}`)}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{conversationTitle(item, user.id).charAt(0).toUpperCase()}</Text>
-            </View>
-            <View style={styles.rowBody}>
-              <Text style={styles.rowTitle}>{conversationTitle(item, user.id)}</Text>
-              <Text style={styles.rowPreview} numberOfLines={1}>
-                {item.lastMessage?.decryptFailed
-                  ? "Couldn't decrypt this message"
-                  : item.lastMessage?.content || 'No messages yet'}
-              </Text>
-            </View>
-            {item.unreadCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{item.unreadCount}</Text>
+        renderItem={({ item }) => {
+          const title = conversationTitle(item, user.id)
+          const unread = item.unreadCount > 0
+          return (
+            <Pressable style={styles.row} onPress={() => router.push(`/chat/${item.id}`)}>
+              <View style={[styles.avatar, { backgroundColor: colorForConversation(item.id) }]}>
+                <Text style={styles.avatarText}>{title.charAt(0).toUpperCase()}</Text>
               </View>
-            )}
-          </Pressable>
-        )}
+              <View style={styles.rowBody}>
+                <Text style={[styles.rowTitle, unread && styles.rowTitleUnread]}>{title}</Text>
+                <Text style={[styles.rowPreview, unread && styles.rowPreviewUnread]} numberOfLines={1}>
+                  {item.lastMessage?.decryptFailed
+                    ? "Couldn't decrypt this message"
+                    : item.lastMessage?.content || 'No messages yet'}
+                </Text>
+              </View>
+              {unread && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{item.unreadCount}</Text>
+                </View>
+              )}
+            </Pressable>
+          )
+        }}
       />
     </View>
   )
@@ -124,7 +128,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.sm,
   },
-  headerTitle: { color: theme.colors.text, fontSize: 24, fontWeight: '700' },
+  headerTitle: { color: theme.colors.text, ...theme.type.title },
   signOut: { color: theme.colors.textMuted },
   search: {
     marginHorizontal: theme.spacing.md,
@@ -154,25 +158,26 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme.colors.bubbleOwn,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { color: theme.colors.text, fontWeight: '700' },
+  avatarText: { color: '#1a0f0c', fontWeight: '800', fontSize: 16 },
   rowBody: { flex: 1 },
-  rowTitle: { color: theme.colors.text, fontWeight: '600', fontSize: 16 },
-  rowPreview: { color: theme.colors.textMuted, marginTop: 2 },
+  rowTitle: { color: theme.colors.textMuted, ...theme.type.label, fontSize: 16 },
+  rowTitleUnread: { color: theme.colors.text, fontWeight: '800' },
+  rowPreview: { color: theme.colors.textMuted, ...theme.type.caption, marginTop: 2 },
+  rowPreviewUnread: { color: theme.colors.text },
   badge: {
     backgroundColor: theme.colors.accent,
-    borderRadius: 12,
+    borderRadius: theme.radii.pill,
     minWidth: 22,
     height: 22,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 6,
   },
-  badgeText: { color: theme.colors.text, fontSize: 12, fontWeight: '700' },
+  badgeText: { color: '#1a0f0c', fontSize: 12, fontWeight: '800' },
 })

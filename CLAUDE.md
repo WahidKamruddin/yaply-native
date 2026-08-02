@@ -125,8 +125,8 @@ Keys are stored as **JWK JSON** (matching web and the deprecated iOS app).
 | Backend | `@supabase/supabase-js` + `@react-native-async-storage/async-storage` (session persistence) + `react-native-url-polyfill/auto` | Same Supabase project as web — zero backend changes needed. |
 | Crypto | `@noble/curves/p256`, `@noble/ciphers/aes`, `react-native-get-random-values` | See Encryption section above. |
 | Key storage | `expo-secure-store` | iOS Keychain / Android Keystore under the hood — RN equivalent of web's IndexedDB and the deprecated iOS app's Keychain usage. |
-| Styling | Custom `theme.ts` (StyleSheet-based design tokens) | See Design Direction below — deliberately not inherited from web's blue-slate palette or the deprecated iOS app's system defaults. |
-| Animation / gesture | `react-native-reanimated` + `react-native-gesture-handler` | Needed for swipe-to-reply, swipe-to-reveal-timestamp, long-press reaction picker, animated bubble entrance — the interaction language that reads as "Messenger-esque." |
+| Styling | Custom `theme.ts` (StyleSheet-based design tokens) + `expo-linear-gradient` for bubble fills | See Design Direction below — deliberately not inherited from web's blue-slate palette or the deprecated iOS app's system defaults. |
+| Animation / gesture | `react-native-reanimated` + `react-native-gesture-handler` | Powers swipe-to-reply and animated bubble entrance/action-sheet in `src/features/chat/components/` — the interaction language that reads as "Messenger-esque." |
 | Notifications | `expo-notifications` (local scheduling for reminders now; remote push is future work) | See Feature Map. |
 
 ---
@@ -139,7 +139,13 @@ There is no iOS-app equivalent of this section — it's new. The move off SwiftU
 - Web's blue-slate palette (`#1a2744`, `#5b8def`, `#dce7f8`, `#edf1fa`) is *not* the default for yaply-native. It can be referenced for brand consistency, but the palette here is a separate design decision.
 - The deprecated iOS app's SwiftUI system-default look (native alerts, plain `NavigationStack` chrome, `Color+Yaply` extension) is not the target — this app uses custom components (animated popovers instead of native `Alert`, custom bubble/reaction UI) throughout.
 
-**Status:** no palette/component library has been finalized yet. Do a short, deliberate design pass (the `frontend-design` skill can help) once core messaging works and there's a real screen to iterate against, rather than guessing at colors before there's anything to look at. Until then, `theme.ts` should hold placeholder tokens clearly marked as provisional.
+**Status (Phase 4 design pass, done):** `theme.ts` landed a real palette — near-black charcoal-violet background (`#0d0d14`) with a coral-to-amber gradient (`#ff6a5c` → `#ffab52`, via `expo-linear-gradient`) for own-message bubbles, flat dark surface for others' bubbles. Chosen specifically to read as warm/energetic rather than the cold blue that both web (`#5b8def`) and default Messenger use — a deliberate differentiator, not an accident. `colorForConversation(id)` deterministically maps each conversation to one of 8 accent colors (coral/amber/blue/violet/teal/pink/gold/green) for avatars — groundwork for Messenger-style "pick a chat color," with no settings UI to override it yet (every install shows the same color for the same conversation, which is what makes the list visually scannable without added state). No custom font file loaded — system font with a weight/size scale (`theme.type`) stands in for a type system; adding a real font needs an asset + `expo-font` wiring, judged not worth doing before a real design review.
+
+**Interaction layer (Phase 4, done):** `react-native-reanimated` + `react-native-gesture-handler` power two custom components in `src/features/chat/components/`:
+- `MessageBubble.tsx` — fade/slide-in entrance on mount; swipe-right-to-reply (reveals a small reply icon behind the bubble, fires past a 64pt threshold, springs back either way — one gesture direction only, not iOS's separate swipe-left-for-timestamp gesture; timestamps are just always shown in a caption under each bubble instead, a deliberate simplification over doing two competing pan gestures on one view without a device to tune them against).
+- `MessageActionSheet.tsx` — replaces the native `Alert` used in Phase 2 for delete-confirm with a custom animated bottom sheet (Reply / Delete / Cancel), matching "no native alerts/sheets" above.
+
+Both were verified to actually compile through Metro (`expo export --platform ios`, worklets included) — not just type-check — since Reanimated's Babel plugin (auto-included by `babel-preset-expo`) is exactly the kind of thing that type-checks fine and then fails at bundle time if misconfigured.
 
 ---
 
@@ -282,14 +288,15 @@ Full feature parity with the deprecated iOS app is the goal, phased as:
 | Phase | Feature | Files |
 |---|---|---|
 | 1 | Encryption layer (crypto wire format v2) | `src/crypto/{base64,jwk,keys,envelope,keyStore}.ts`, `src/features/chat/hooks/useEncryption.ts` — verified byte-interoperable with web via `scripts/verify-web-interop.ts` (`npm run verify:interop`) |
-| 2 | Auth, conversation list, DM creation + user search, chat screen (paginated, realtime, reply, soft-delete) | `src/features/auth/useAuth.ts`, `app/(auth)/{sign-in,sign-up}.tsx`, `src/features/chat/{api,hooks}/*`, `app/(tabs)/index.tsx`, `app/chat/[id].tsx`. Device registration is kicked off once in `app/_layout.tsx` (not per-screen) — safe because of `useEncryption`'s single-flight guard. Chat screen works for any conversation (DM or group) once one exists — encryption/decryption/pagination/realtime are conversation-type-agnostic, matching web. Styling is placeholder `theme.ts` tokens, not the Phase 4 design pass. |
+| 2 | Auth, conversation list, DM creation + user search, chat screen (paginated, realtime, reply, soft-delete) | `src/features/auth/useAuth.ts`, `app/(auth)/{sign-in,sign-up}.tsx`, `src/features/chat/{api,hooks}/*`, `app/(tabs)/index.tsx`, `app/chat/[id].tsx`. Device registration is kicked off once in `app/_layout.tsx` (not per-screen) — safe because of `useEncryption`'s single-flight guard. Chat screen works for any conversation (DM or group) once one exists — encryption/decryption/pagination/realtime are conversation-type-agnostic, matching web. |
 | 3 | Slash commands (`/help`, `/remind`, `/mute`) + system message auto-destruct | `src/features/commands/{commandParser,commands,commandRegistry}.ts`, `src/features/commands/handlers/*`, wired into `app/chat/[id].tsx`'s composer. `/task`, `/note`, `/album`, `/budget`, `/plan`, `/poll`, `/event` are recognized but return "not available yet" — real creation is Phase 5's job (matches web's own `createHandler`, which just opens a modal; there's no modal system here yet). Expired (`deleted_at` in the past) system messages are hidden silently, matching web/iOS. Regular deleted messages render an italic "Message deleted" placeholder. **`/thread` is not implemented** — despite the root CLAUDE.md's Cross-Platform Reference section listing it, the actual web `commandRegistry.ts` has no `thread` case (threading is a UI action via reply, not a slash command) — verified by reading web's source directly rather than trusting that doc. |
+| 4 | Design system + Messenger-esque interaction layer | `theme.ts` (real palette + `colorForConversation`), `src/features/chat/components/{MessageBubble,MessageActionSheet}.tsx`, integrated into `app/chat/[id].tsx` and `app/(tabs)/index.tsx`. See Design Direction above for what shipped and what was deliberately simplified (single swipe direction, no custom font yet). |
 
 ### Not yet implemented
 
 - **Group creation UI** — no multi-select member picker / `create_group_conversation` RPC call yet, only DM creation via user search. Existing groups (created elsewhere) work fine in the chat screen; there's just no way to create one from this app yet.
 - **System message "Open {tab} →" links** — the tab-map hyperlink behavior documented for iOS isn't built here yet since there's nothing to link to until Phase 5 builds Tasks/Notes/etc. screens.
-- **Phase 4** — Design system + Messenger-esque interaction layer (bubbles, gestures, reactions)
+- **Per-conversation accent color is display-only** — `colorForConversation` drives avatars everywhere but there's no settings UI to let a user override the deterministic color, unlike Messenger's actual "pick a chat color" feature.
 - **Phase 5** — Tier 3/4 features: Tasks, Notes, Reminders, Events (with availability calendar), Albums, Budgets + Splitwise, Stickers
 - **Phase 6** — Media upload, GIF picker, remote push notifications — deferred, matching web's own "not yet integrated" status for these; do not build ahead of what web itself has shipped.
 
