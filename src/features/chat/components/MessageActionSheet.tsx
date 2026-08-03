@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { BlurView } from 'expo-blur'
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
-import { theme } from '../../../theme'
+import { useAppTheme } from '../../../theme/ThemeProvider'
 
 interface Props {
   visible: boolean
@@ -11,10 +12,11 @@ interface Props {
   onClose: () => void
 }
 
-// Custom animated bottom sheet replacing a native Alert — part of the
-// Messenger-esque interaction language (CLAUDE.md's Design Direction: no
-// native alerts/sheets, custom components throughout).
+// Bottom sheet (mobile-idiomatic — web's equivalent is a desktop right-click
+// context menu, which doesn't translate directly) restyled to web's actual
+// card/border/shadow tokens rather than a native Alert.
 export function MessageActionSheet({ visible, canDelete, onReply, onDelete, onClose }: Props) {
+  const { colors, spacing, radii, type, mode } = useAppTheme()
   const progress = useSharedValue(0)
 
   useEffect(() => {
@@ -30,20 +32,44 @@ export function MessageActionSheet({ visible, canDelete, onReply, onDelete, onCl
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
       <Pressable style={styles.backdropTouchable} onPress={onClose}>
-        <Animated.View style={[styles.backdrop, backdropStyle]} />
+        <Animated.View style={[styles.backdrop, backdropStyle]}>
+          <BlurView intensity={20} tint={mode} style={StyleSheet.absoluteFill} />
+        </Animated.View>
       </Pressable>
       <View style={styles.container} pointerEvents="box-none">
-        <Animated.View style={[styles.sheet, sheetStyle]}>
-          <Pressable style={styles.option} onPress={onReply}>
-            <Text style={styles.optionText}>Reply</Text>
+        <Animated.View
+          style={[
+            sheetStyle,
+            {
+              backgroundColor: colors.card,
+              borderTopLeftRadius: radii.lg,
+              borderTopRightRadius: radii.lg,
+              borderWidth: 1,
+              borderBottomWidth: 0,
+              borderColor: colors.border,
+              paddingBottom: spacing.lg,
+              paddingTop: spacing.sm,
+              shadowColor: '#000',
+              shadowOpacity: 0.5,
+              shadowRadius: 24,
+              shadowOffset: { width: 0, height: -4 },
+              elevation: 12,
+            },
+          ]}
+        >
+          <Pressable style={[styles.option, { paddingHorizontal: spacing.lg, borderBottomColor: colors.borderSoft }]} onPress={onReply}>
+            <Text style={[styles.optionText, { color: colors.text, ...type.body }]}>Reply</Text>
           </Pressable>
           {canDelete && (
-            <Pressable style={styles.option} onPress={onDelete}>
-              <Text style={[styles.optionText, styles.destructive]}>Delete</Text>
+            <Pressable style={[styles.option, { paddingHorizontal: spacing.lg, borderBottomColor: colors.borderSoft }]} onPress={onDelete}>
+              <Text style={[styles.optionText, { color: colors.danger, ...type.body }]}>Delete</Text>
             </Pressable>
           )}
-          <Pressable style={[styles.option, styles.cancel]} onPress={onClose}>
-            <Text style={styles.optionText}>Cancel</Text>
+          <Pressable
+            style={[styles.option, styles.cancel, { paddingHorizontal: spacing.lg, marginTop: spacing.xs }]}
+            onPress={onClose}
+          >
+            <Text style={[styles.optionText, { color: colors.textMuted, ...type.body }]}>Cancel</Text>
           </Pressable>
         </Animated.View>
       </View>
@@ -53,22 +79,9 @@ export function MessageActionSheet({ visible, canDelete, onReply, onDelete, onCl
 
 const styles = StyleSheet.create({
   backdropTouchable: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000', overflow: 'hidden' },
   container: { flex: 1, justifyContent: 'flex-end' },
-  sheet: {
-    backgroundColor: theme.colors.surfaceRaised,
-    borderTopLeftRadius: theme.radii.lg,
-    borderTopRightRadius: theme.radii.lg,
-    paddingBottom: theme.spacing.lg,
-    paddingTop: theme.spacing.sm,
-  },
-  option: {
-    paddingVertical: 14,
-    paddingHorizontal: theme.spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: theme.colors.border,
-  },
-  cancel: { borderBottomWidth: 0, marginTop: theme.spacing.xs },
-  optionText: { color: theme.colors.text, ...theme.type.body, textAlign: 'center' },
-  destructive: { color: theme.colors.danger },
+  option: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  cancel: { borderBottomWidth: 0 },
+  optionText: { textAlign: 'center' },
 })

@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { router } from 'expo-router'
 import { supabase } from '../../src/lib/supabase'
-import { theme } from '../../src/theme'
+import { useAppTheme } from '../../src/theme/ThemeProvider'
+import { AuthScreen, AuthInput, AuthButton } from '../../src/components/AuthScreen'
 
 export default function SignUp() {
+  const { colors, spacing } = useAppTheme()
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -24,89 +26,36 @@ export default function SignUp() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Text style={styles.title}>Create account</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Username"
-        placeholderTextColor={theme.colors.textMuted}
-        autoCapitalize="none"
-        value={username}
-        onChangeText={setUsername}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        placeholderTextColor={theme.colors.textMuted}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        placeholderTextColor={theme.colors.textMuted}
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable style={styles.button} onPress={onSubmit} disabled={loading}>
-        <Text style={styles.buttonText}>{loading ? 'Creating…' : 'Sign up'}</Text>
-      </Pressable>
-      <Pressable style={styles.link} onPress={() => router.back()}>
-        <Text style={styles.linkText}>Already have an account? Sign in</Text>
-      </Pressable>
-    </KeyboardAvoidingView>
+    <AuthScreen
+      title="Create your account."
+      subtitle="Takes less than a minute."
+      footer={
+        <Pressable style={styles.link} onPress={() => router.back()}>
+          <Text style={[styles.linkText, { color: colors.textMuted }]}>Already have an account? Sign in</Text>
+        </Pressable>
+      }
+    >
+      <View style={{ gap: spacing.sm }}>
+        <AuthInput placeholder="Username" autoCapitalize="none" value={username} onChangeText={setUsername} />
+        <AuthInput
+          placeholder="Email"
+          autoCapitalize="none"
+          keyboardType="email-address"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <AuthInput placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
+        {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
+        <View style={{ marginTop: spacing.xs }}>
+          <AuthButton label={loading ? 'Creating…' : 'Sign up'} onPress={onSubmit} disabled={loading} />
+        </View>
+      </View>
+    </AuthScreen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    gap: theme.spacing.sm,
-  },
-  title: {
-    color: theme.colors.text,
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: theme.spacing.lg,
-    textAlign: 'center',
-  },
-  input: {
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    borderRadius: theme.radii.md,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    fontSize: 16,
-  },
-  error: {
-    color: theme.colors.danger,
-    textAlign: 'center',
-  },
-  button: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radii.md,
-    paddingVertical: theme.spacing.sm,
-    alignItems: 'center',
-    marginTop: theme.spacing.sm,
-  },
-  buttonText: {
-    color: theme.colors.text,
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  link: {
-    marginTop: theme.spacing.md,
-    alignItems: 'center',
-  },
-  linkText: {
-    color: theme.colors.textMuted,
-    textAlign: 'center',
-  },
+  error: { textAlign: 'center', fontSize: 13 },
+  link: { marginTop: 20, alignItems: 'center' },
+  linkText: { textAlign: 'center' },
 })

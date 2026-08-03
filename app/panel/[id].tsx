@@ -3,7 +3,7 @@ import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import { router, useLocalSearchParams } from 'expo-router'
 import { useAuth } from '../../src/features/auth/useAuth'
 import { ConfirmDialog } from '../../src/components/ConfirmDialog'
-import { theme } from '../../src/theme'
+import { useAppTheme } from '../../src/theme/ThemeProvider'
 
 import { useTasks, useCreateTask, useUpdateTaskStatus, useDeleteTask } from '../../src/features/productivity/hooks/useTasks'
 import { useNotes, useCreateNote, useDeleteNote } from '../../src/features/productivity/hooks/useNotes'
@@ -21,21 +21,23 @@ export default function Panel() {
   const conversationId = id ?? null
   const { user } = useAuth()
   const [tab, setTab] = useState<Tab>((TABS as readonly string[]).includes(initialTab ?? '') ? (initialTab as Tab) : 'Tasks')
+  const themeCtx = useAppTheme()
+  const s = styles(themeCtx)
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={s.container}>
+      <View style={s.header}>
         <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>‹ Back</Text>
+          <Text style={s.back}>‹ Back</Text>
         </Pressable>
-        <Text style={styles.title}>Conversation Tools</Text>
+        <Text style={s.title}>Conversation Tools</Text>
         <View style={{ width: 50 }} />
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar} contentContainerStyle={styles.tabBarContent}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabBar} contentContainerStyle={s.tabBarContent}>
         {TABS.map((t) => (
-          <Pressable key={t} style={[styles.tabPill, tab === t && styles.tabPillActive]} onPress={() => setTab(t)}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{t}</Text>
+          <Pressable key={t} style={[s.tabPill, tab === t && s.tabPillActive]} onPress={() => setTab(t)}>
+            <Text style={[s.tabText, tab === t && s.tabTextActive]}>{t}</Text>
           </Pressable>
         ))}
       </ScrollView>
@@ -60,6 +62,7 @@ export default function Panel() {
 // ─── Tasks ─────────────────────────────────────────────────────────────────
 
 function TasksTab({ conversationId, userId }: { conversationId: string; userId: string }) {
+  const s = styles(useAppTheme())
   const { data: tasks = [] } = useTasks(conversationId)
   const createTask = useCreateTask(conversationId)
   const updateStatus = useUpdateTaskStatus()
@@ -78,19 +81,19 @@ function TasksTab({ conversationId, userId }: { conversationId: string; userId: 
   }, [title, userId, createTask, conversationId])
 
   return (
-    <View style={styles.body}>
+    <View style={s.body}>
       <FlatList
         data={tasks}
         keyExtractor={(t) => t.id}
-        ListEmptyComponent={<Text style={styles.empty}>No tasks yet.</Text>}
+        ListEmptyComponent={<Text style={s.empty}>No tasks yet.</Text>}
         renderItem={({ item }) => (
           <Pressable
-            style={styles.row}
+            style={s.row}
             onPress={() => updateStatus.mutate({ taskId: item.id, status: item.status === 'done' ? 'todo' : 'done' })}
             onLongPress={() => setConfirmId(item.id)}
           >
-            <View style={[styles.checkbox, item.status === 'done' && styles.checkboxChecked]} />
-            <Text style={[styles.rowText, item.status === 'done' && styles.rowTextDone]}>{item.title}</Text>
+            <View style={[s.checkbox, item.status === 'done' && s.checkboxChecked]} />
+            <Text style={[s.rowText, item.status === 'done' && s.rowTextDone]}>{item.title}</Text>
           </Pressable>
         )}
       />
@@ -111,6 +114,7 @@ function TasksTab({ conversationId, userId }: { conversationId: string; userId: 
 // ─── Notes ─────────────────────────────────────────────────────────────────
 
 function NotesTab({ conversationId, userId }: { conversationId: string; userId: string }) {
+  const s = styles(useAppTheme())
   const { data: notes = [] } = useNotes(conversationId)
   const createNote = useCreateNote(conversationId)
   const deleteNote = useDeleteNote()
@@ -128,14 +132,14 @@ function NotesTab({ conversationId, userId }: { conversationId: string; userId: 
   }, [title, userId, createNote, conversationId])
 
   return (
-    <View style={styles.body}>
+    <View style={s.body}>
       <FlatList
         data={notes}
         keyExtractor={(n) => n.id}
-        ListEmptyComponent={<Text style={styles.empty}>No notes yet.</Text>}
+        ListEmptyComponent={<Text style={s.empty}>No notes yet.</Text>}
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onLongPress={() => setConfirmId(item.id)}>
-            <Text style={styles.rowText}>{item.title}</Text>
+          <Pressable style={s.row} onLongPress={() => setConfirmId(item.id)}>
+            <Text style={s.rowText}>{item.title}</Text>
           </Pressable>
         )}
       />
@@ -158,23 +162,24 @@ function NotesTab({ conversationId, userId }: { conversationId: string; userId: 
 // read + dismiss, matching web's shared-reminders model (migration 00022).
 
 function RemindersTab({ conversationId }: { conversationId: string }) {
+  const s = styles(useAppTheme())
   const { data: reminders = [] } = useReminders(conversationId)
   const dismiss = useDismissReminder()
 
   return (
-    <View style={styles.body}>
+    <View style={s.body}>
       <FlatList
         data={reminders}
         keyExtractor={(r) => r.id}
-        ListEmptyComponent={<Text style={styles.empty}>No reminders yet. Use /remind in the chat to set one.</Text>}
+        ListEmptyComponent={<Text style={s.empty}>No reminders yet. Use /remind in the chat to set one.</Text>}
         renderItem={({ item }) => (
-          <View style={styles.row}>
+          <View style={s.row}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowText}>{item.message}</Text>
-              <Text style={styles.rowSubtext}>{new Date(item.remind_at).toLocaleString()}</Text>
+              <Text style={s.rowText}>{item.message}</Text>
+              <Text style={s.rowSubtext}>{new Date(item.remind_at).toLocaleString()}</Text>
             </View>
             <Pressable onPress={() => dismiss.mutate(item.id)}>
-              <Text style={styles.dismiss}>Dismiss</Text>
+              <Text style={s.dismiss}>Dismiss</Text>
             </Pressable>
           </View>
         )}
@@ -188,6 +193,7 @@ function RemindersTab({ conversationId }: { conversationId: string }) {
 // (UTC slot-key contract in CLAUDE.md) is not built yet.
 
 function EventsTab({ conversationId, userId }: { conversationId: string; userId: string }) {
+  const s = styles(useAppTheme())
   const { data: events = [] } = useEvents(conversationId)
   const createEvent = useCreateEvent(conversationId)
   const deleteEvent = useDeleteEvent()
@@ -208,17 +214,17 @@ function EventsTab({ conversationId, userId }: { conversationId: string; userId:
   }, [name, userId, createEvent, conversationId])
 
   return (
-    <View style={styles.body}>
+    <View style={s.body}>
       <FlatList
         data={events}
         keyExtractor={(e) => e.id}
-        ListEmptyComponent={<Text style={styles.empty}>No events yet.</Text>}
+        ListEmptyComponent={<Text style={s.empty}>No events yet.</Text>}
         renderItem={({ item }) => (
-          <View style={styles.rowColumn}>
-            <Pressable style={styles.row} onLongPress={() => setConfirmId(item.id)}>
+          <View style={s.rowColumn}>
+            <Pressable style={s.row} onLongPress={() => setConfirmId(item.id)}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.rowText}>{item.name}</Text>
-                <Text style={styles.rowSubtext}>
+                <Text style={s.rowText}>{item.name}</Text>
+                <Text style={s.rowSubtext}>
                   {item.status === 'confirmed' && item.starts_at
                     ? new Date(item.starts_at).toLocaleString()
                     : 'Planning — no date locked'}
@@ -244,19 +250,20 @@ function EventsTab({ conversationId, userId }: { conversationId: string; userId:
 }
 
 function RsvpRow({ eventId, userId }: { eventId: string; userId: string }) {
+  const s = styles(useAppTheme())
   const { data: rsvps = [] } = useEventRsvp(eventId)
   const setRsvp = useSetRsvp(eventId)
   const mine = rsvps.find((r) => r.user_id === userId)?.response
 
   return (
-    <View style={styles.rsvpRow}>
+    <View style={s.rsvpRow}>
       {(['going', 'maybe', 'not_going'] as const).map((response) => (
         <Pressable
           key={response}
-          style={[styles.rsvpPill, mine === response && styles.rsvpPillActive]}
+          style={[s.rsvpPill, mine === response && s.rsvpPillActive]}
           onPress={() => setRsvp.mutate({ userId, response })}
         >
-          <Text style={[styles.rsvpText, mine === response && styles.rsvpTextActive]}>
+          <Text style={[s.rsvpText, mine === response && s.rsvpTextActive]}>
             {response === 'going' ? 'Going' : response === 'maybe' ? 'Maybe' : "Can't go"}
           </Text>
         </Pressable>
@@ -270,6 +277,7 @@ function RsvpRow({ eventId, userId }: { eventId: string; userId: string }) {
 // messages) — albums can be created but stay empty until then.
 
 function AlbumsTab({ conversationId, userId }: { conversationId: string; userId: string }) {
+  const s = styles(useAppTheme())
   const { data: albums = [] } = useAlbums(conversationId)
   const createAlbum = useCreateAlbum(conversationId)
   const deleteAlbum = useDeleteAlbum()
@@ -287,15 +295,15 @@ function AlbumsTab({ conversationId, userId }: { conversationId: string; userId:
   }, [name, userId, createAlbum, conversationId])
 
   return (
-    <View style={styles.body}>
+    <View style={s.body}>
       <FlatList
         data={albums}
         keyExtractor={(a) => a.id}
-        ListEmptyComponent={<Text style={styles.empty}>No albums yet.</Text>}
+        ListEmptyComponent={<Text style={s.empty}>No albums yet.</Text>}
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onLongPress={() => setConfirmId(item.id)}>
-            <Text style={styles.rowText}>{item.name}</Text>
-            <Text style={styles.rowSubtext}>No photos yet</Text>
+          <Pressable style={s.row} onLongPress={() => setConfirmId(item.id)}>
+            <Text style={s.rowText}>{item.name}</Text>
+            <Text style={s.rowSubtext}>No photos yet</Text>
           </Pressable>
         )}
       />
@@ -318,6 +326,7 @@ function AlbumsTab({ conversationId, userId }: { conversationId: string; userId:
 // doesn't have configured, genuinely out of scope rather than cut.
 
 function BudgetsTab({ conversationId, userId }: { conversationId: string; userId: string }) {
+  const s = styles(useAppTheme())
   const { data: budgets = [] } = useBudgets(conversationId)
   const createBudget = useCreateBudget(conversationId)
   const deleteBudget = useDeleteBudget()
@@ -335,15 +344,15 @@ function BudgetsTab({ conversationId, userId }: { conversationId: string; userId
   }, [name, userId, createBudget, conversationId])
 
   return (
-    <View style={styles.body}>
+    <View style={s.body}>
       <FlatList
         data={budgets}
         keyExtractor={(b) => b.id}
-        ListEmptyComponent={<Text style={styles.empty}>No budgets yet.</Text>}
+        ListEmptyComponent={<Text style={s.empty}>No budgets yet.</Text>}
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onLongPress={() => setConfirmId(item.id)}>
-            <Text style={styles.rowText}>{item.name}</Text>
-            <Text style={styles.rowSubtext}>
+          <Pressable style={s.row} onLongPress={() => setConfirmId(item.id)}>
+            <Text style={s.rowText}>{item.name}</Text>
+            <Text style={s.rowSubtext}>
               {item.total_amount > 0 ? `${item.currency} ${item.total_amount.toFixed(2)}` : 'No total set'}
             </Text>
           </Pressable>
@@ -376,90 +385,100 @@ function AddRow({
   onChangeText: (v: string) => void
   onSubmit: () => void
 }) {
+  const { colors } = useAppTheme()
+  const s = styles(useAppTheme())
   return (
-    <View style={styles.addRow}>
+    <View style={s.addRow}>
       <TextInput
-        style={styles.addInput}
+        style={s.addInput}
         placeholder={placeholder}
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textSubtle}
         value={value}
         onChangeText={onChangeText}
         onSubmitEditing={onSubmit}
         returnKeyType="done"
       />
-      <Pressable style={styles.addButton} onPress={onSubmit} disabled={!value.trim()}>
-        <Text style={styles.addButtonText}>Add</Text>
+      <Pressable style={s.addButton} onPress={onSubmit} disabled={!value.trim()}>
+        <Text style={s.addButtonText}>Add</Text>
       </Pressable>
     </View>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 56,
-    paddingHorizontal: theme.spacing.md,
-    paddingBottom: theme.spacing.sm,
-  },
-  back: { color: theme.colors.accent, width: 50 },
-  title: { color: theme.colors.text, ...theme.type.heading, fontSize: 16, flex: 1, textAlign: 'center' },
-  tabBar: { flexGrow: 0, marginBottom: theme.spacing.sm },
-  tabBarContent: { paddingHorizontal: theme.spacing.md, gap: theme.spacing.xs },
-  tabPill: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 6,
-    borderRadius: theme.radii.pill,
-    backgroundColor: theme.colors.surface,
-    marginRight: theme.spacing.xs,
-  },
-  tabPillActive: { backgroundColor: theme.colors.accent },
-  tabText: { color: theme.colors.textMuted, ...theme.type.label },
-  tabTextActive: { color: '#1a0f0c' },
-  body: { flex: 1, paddingHorizontal: theme.spacing.md },
-  empty: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing.lg },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-    paddingVertical: theme.spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: theme.colors.border,
-  },
-  rowColumn: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
-  rowText: { color: theme.colors.text, ...theme.type.body },
-  rowTextDone: { color: theme.colors.textMuted, textDecorationLine: 'line-through' },
-  rowSubtext: { color: theme.colors.textMuted, ...theme.type.caption, marginTop: 2 },
-  dismiss: { color: theme.colors.accent, ...theme.type.label },
-  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: theme.colors.textMuted },
-  checkboxChecked: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
-  rsvpRow: { flexDirection: 'row', gap: theme.spacing.xs, paddingBottom: theme.spacing.sm },
-  rsvpPill: {
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 4,
-    borderRadius: theme.radii.pill,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  rsvpPillActive: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
-  rsvpText: { color: theme.colors.textMuted, ...theme.type.caption },
-  rsvpTextActive: { color: '#1a0f0c', fontWeight: '700' },
-  addRow: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    paddingVertical: theme.spacing.sm,
-    alignItems: 'center',
-  },
-  addInput: {
-    flex: 1,
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    borderRadius: theme.radii.md,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 8,
-  },
-  addButton: { backgroundColor: theme.colors.accent, borderRadius: theme.radii.md, paddingHorizontal: theme.spacing.md, paddingVertical: 8 },
-  addButtonText: { color: '#1a0f0c', fontWeight: '700' },
-})
+const styles = ({ colors, spacing, radii, type }: ReturnType<typeof useAppTheme>) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingTop: 56,
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.sm,
+      backgroundColor: colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    back: { color: colors.primaryText, width: 50 },
+    title: { color: colors.text, ...type.heading, fontSize: 16, flex: 1, textAlign: 'center' },
+    tabBar: { flexGrow: 0, marginTop: spacing.sm, marginBottom: spacing.sm },
+    tabBarContent: { paddingHorizontal: spacing.md, gap: spacing.xs },
+    tabPill: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      borderRadius: radii.pill,
+      backgroundColor: colors.tint,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginRight: spacing.xs,
+    },
+    tabPillActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    tabText: { color: colors.textMuted, ...type.label },
+    tabTextActive: { color: '#ffffff' },
+    body: { flex: 1, paddingHorizontal: spacing.md },
+    empty: { color: colors.textSubtle, textAlign: 'center', marginTop: spacing.lg },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.borderSoft,
+    },
+    rowColumn: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSoft },
+    rowText: { color: colors.text, ...type.body },
+    rowTextDone: { color: colors.textSubtle, textDecorationLine: 'line-through' },
+    rowSubtext: { color: colors.textMuted, ...type.caption, marginTop: 2 },
+    dismiss: { color: colors.primaryText, ...type.label },
+    checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: colors.textSubtle },
+    checkboxChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
+    rsvpRow: { flexDirection: 'row', gap: spacing.xs, paddingBottom: spacing.sm },
+    rsvpPill: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    rsvpPillActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    rsvpText: { color: colors.textMuted, ...type.caption },
+    rsvpTextActive: { color: '#ffffff', fontWeight: '700' },
+    addRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      alignItems: 'center',
+    },
+    addInput: {
+      flex: 1,
+      backgroundColor: colors.tint,
+      color: colors.text,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 8,
+    },
+    addButton: { backgroundColor: colors.primary, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 8 },
+    addButtonText: { color: '#ffffff', fontWeight: '700' },
+  })

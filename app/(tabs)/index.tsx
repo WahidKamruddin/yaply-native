@@ -2,11 +2,13 @@ import { useCallback, useState } from 'react'
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { router } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
+import { Feather } from '@expo/vector-icons'
 import { useAuth } from '../../src/features/auth/useAuth'
 import { useConversations } from '../../src/features/chat/hooks/useConversations'
 import { createDirectConversation, searchUsers } from '../../src/features/chat/api/conversations'
 import { supabase } from '../../src/lib/supabase'
-import { theme, colorForConversation } from '../../src/theme'
+import { useAppTheme } from '../../src/theme/ThemeProvider'
+import { Avatar } from '../../src/components/Avatar'
 import type { ConversationListItem, Profile } from '../../src/features/chat/types'
 
 function conversationTitle(item: ConversationListItem, myUserId: string): string {
@@ -22,6 +24,7 @@ export default function ConversationList() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Profile[]>([])
   const [searching, setSearching] = useState(false)
+  const { colors, spacing, radii, type, mode, toggle } = useAppTheme()
 
   const onSearchChange = useCallback(
     async (text: string) => {
@@ -54,61 +57,70 @@ export default function ConversationList() {
 
   if (!user) return null
 
+  const s = styles(colors, spacing, radii, type)
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>yaply</Text>
-        <Pressable onPress={() => supabase.auth.signOut()}>
-          <Text style={styles.signOut}>Sign out</Text>
-        </Pressable>
+    <View style={s.container}>
+      <View style={s.header}>
+        <Text style={s.headerTitle}>yaply</Text>
+        <View style={s.headerActions}>
+          <Pressable style={s.iconButton} onPress={toggle}>
+            <Feather name={mode === 'dark' ? 'sun' : 'moon'} size={18} color={colors.textSubtle} />
+          </Pressable>
+          <Pressable onPress={() => supabase.auth.signOut()}>
+            <Text style={s.signOut}>Sign out</Text>
+          </Pressable>
+        </View>
       </View>
 
       <TextInput
-        style={styles.search}
+        style={s.search}
         placeholder="Search people…"
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textSubtle}
         value={query}
         onChangeText={onSearchChange}
         autoCapitalize="none"
       />
 
       {results.length > 0 && (
-        <View style={styles.results}>
+        <View style={s.results}>
           {results.map((p) => (
-            <Pressable key={p.id} style={styles.resultRow} onPress={() => openDm(p.id)}>
-              <Text style={styles.resultName}>{p.display_name || p.username}</Text>
-              <Text style={styles.resultUsername}>@{p.username}</Text>
+            <Pressable key={p.id} style={s.resultRow} onPress={() => openDm(p.id)}>
+              <Avatar uri={p.avatar_url} size={32} />
+              <View>
+                <Text style={s.resultName}>{p.display_name || p.username}</Text>
+                <Text style={s.resultUsername}>@{p.username}</Text>
+              </View>
             </Pressable>
           ))}
         </View>
       )}
-      {searching && <Text style={styles.muted}>Searching…</Text>}
+      {searching && <Text style={s.muted}>Searching…</Text>}
 
       <FlatList
         data={conversations ?? []}
         keyExtractor={(item) => item.id}
         refreshing={isLoading}
         onRefresh={() => queryClient.invalidateQueries({ queryKey: ['conversations', user.id] })}
-        ListEmptyComponent={!isLoading ? <Text style={styles.muted}>No conversations yet — search for someone above.</Text> : null}
+        ListEmptyComponent={!isLoading ? <Text style={s.muted}>No conversations yet — search for someone above.</Text> : null}
         renderItem={({ item }) => {
           const title = conversationTitle(item, user.id)
           const unread = item.unreadCount > 0
+          const other = !item.isGroup ? item.members.find((m) => m.userId !== user.id) : undefined
           return (
-            <Pressable style={styles.row} onPress={() => router.push(`/chat/${item.id}`)}>
-              <View style={[styles.avatar, { backgroundColor: colorForConversation(item.id) }]}>
-                <Text style={styles.avatarText}>{title.charAt(0).toUpperCase()}</Text>
-              </View>
-              <View style={styles.rowBody}>
-                <Text style={[styles.rowTitle, unread && styles.rowTitleUnread]}>{title}</Text>
-                <Text style={[styles.rowPreview, unread && styles.rowPreviewUnread]} numberOfLines={1}>
+            <Pressable style={s.row} onPress={() => router.push(`/chat/${item.id}`)}>
+              <Avatar uri={other?.profile.avatar_url} size={46} online={other ? other.profile.is_online : undefined} />
+              <View style={s.rowBody}>
+                <Text style={[s.rowTitle, unread && s.rowTitleUnread]}>{title}</Text>
+                <Text style={[s.rowPreview, unread && s.rowPreviewUnread]} numberOfLines={1}>
                   {item.lastMessage?.decryptFailed
                     ? "Couldn't decrypt this message"
                     : item.lastMessage?.content || 'No messages yet'}
                 </Text>
               </View>
               {unread && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{item.unreadCount}</Text>
+                <View style={s.badge}>
+                  <Text style={s.badgeText}>{item.unreadCount}</Text>
                 </View>
               )}
             </Pressable>
@@ -119,65 +131,79 @@ export default function ConversationList() {
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: 60 },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-  },
-  headerTitle: { color: theme.colors.text, ...theme.type.title },
-  signOut: { color: theme.colors.textMuted },
-  search: {
-    marginHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    borderRadius: theme.radii.md,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-  },
-  results: { marginHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
-  resultRow: {
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.sm,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radii.sm,
-    marginBottom: 4,
-  },
-  resultName: { color: theme.colors.text, fontWeight: '600' },
-  resultUsername: { color: theme.colors.textMuted, fontSize: 12 },
-  muted: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing.lg },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    gap: theme.spacing.sm,
-  },
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { color: '#1a0f0c', fontWeight: '800', fontSize: 16 },
-  rowBody: { flex: 1 },
-  rowTitle: { color: theme.colors.textMuted, ...theme.type.label, fontSize: 16 },
-  rowTitleUnread: { color: theme.colors.text, fontWeight: '800' },
-  rowPreview: { color: theme.colors.textMuted, ...theme.type.caption, marginTop: 2 },
-  rowPreviewUnread: { color: theme.colors.text },
-  badge: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radii.pill,
-    minWidth: 22,
-    height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  badgeText: { color: '#1a0f0c', fontSize: 12, fontWeight: '800' },
-})
+type Colors = ReturnType<typeof useAppTheme>['colors']
+type Spacing = ReturnType<typeof useAppTheme>['spacing']
+type Radii = ReturnType<typeof useAppTheme>['radii']
+type Type = ReturnType<typeof useAppTheme>['type']
+
+const styles = (colors: Colors, spacing: Spacing, radii: Radii, type: Type) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.surface, paddingTop: 60 },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    headerTitle: { color: colors.text, ...type.title },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    iconButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.tint,
+    },
+    signOut: { color: colors.textMuted },
+    search: {
+      marginHorizontal: spacing.md,
+      backgroundColor: colors.tint,
+      color: colors.text,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    results: { marginHorizontal: spacing.md, marginBottom: spacing.sm },
+    resultRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      borderRadius: radii.sm,
+      marginBottom: 4,
+    },
+    resultName: { color: colors.text, fontWeight: '600' },
+    resultUsername: { color: colors.textMuted, fontSize: 12 },
+    muted: { color: colors.textSubtle, textAlign: 'center', marginTop: spacing.lg },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      gap: spacing.sm,
+    },
+    rowBody: { flex: 1 },
+    rowTitle: { color: colors.text, ...type.label, fontSize: 16 },
+    rowTitleUnread: { fontWeight: '800' },
+    rowPreview: { color: colors.textMuted, ...type.caption, marginTop: 2 },
+    rowPreviewUnread: { color: colors.text, fontWeight: '600' },
+    badge: {
+      backgroundColor: colors.primary,
+      borderRadius: radii.pill,
+      minWidth: 22,
+      height: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 6,
+    },
+    badgeText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
+  })

@@ -3,6 +3,7 @@ import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, 
 import { router, useLocalSearchParams } from 'expo-router'
 import { useAtom } from 'jotai'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useAuth } from '../../src/features/auth/useAuth'
 import { useConversationMeta } from '../../src/features/chat/hooks/useConversationMeta'
 import { useMessages } from '../../src/features/chat/hooks/useMessages'
@@ -14,9 +15,9 @@ import { markConversationRead } from '../../src/features/chat/api/conversations'
 import { replyToMessageIdAtom, commandFeedbackAtom } from '../../src/features/chat/store/chat.atoms'
 import { parseCommand } from '../../src/features/commands/commandParser'
 import { executeCommand } from '../../src/features/commands/commandRegistry'
-import { MessageBubble } from '../../src/features/chat/components/MessageBubble'
+import { MessageBubble, type ReplyPreview } from '../../src/features/chat/components/MessageBubble'
 import { MessageActionSheet } from '../../src/features/chat/components/MessageActionSheet'
-import { theme } from '../../src/theme'
+import { useAppTheme } from '../../src/theme/ThemeProvider'
 import type { DbMessage, DecryptedMessage } from '../../src/features/chat/types'
 
 // Content-pattern → panel tab, matching the deprecated iOS app's
@@ -38,6 +39,29 @@ function tabForSystemMessage(content: string): string | null {
   return null
 }
 
+// FlatList (inverted) row: either a message or a date-separator label,
+// matching web's DateSeparator between messages from different days.
+type Row = { kind: 'message'; message: DecryptedMessage } | { kind: 'separator'; id: string; label: string }
+
+function dateLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+}
+
+function buildRows(messages: DecryptedMessage[]): Row[] {
+  // `messages` is newest-first (matches inverted FlatList order). Insert a
+  // separator row right before the first message of an earlier day.
+  const rows: Row[] = []
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    rows.push({ kind: 'message', message: msg })
+    const next = messages[i + 1]
+    if (!next || new Date(next.createdAt).toDateString() !== new Date(msg.createdAt).toDateString()) {
+      rows.push({ kind: 'separator', id: `sep-${msg.id}`, label: dateLabel(msg.createdAt) })
+    }
+  }
+  return rows
+}
+
 export default function Chat() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const conversationId = id ?? null
@@ -47,6 +71,7 @@ export default function Chat() {
   const { data: pages, fetchNextPage, hasNextPage, isFetchingNextPage } = useMessages(conversationId)
   useRealtimeMessages(conversationId)
   const { encrypt, decryptV2 } = useEncryption(user?.id)
+  const { colors, spacing, radii, type } = useAppTheme()
 
   const [replyId, setReplyId] = useAtom(replyToMessageIdAtom)
   const [feedback, setFeedback] = useAtom(commandFeedbackAtom)
@@ -147,6 +172,31 @@ export default function Chat() {
     }
   }, [allDbMessages, conversationId, user, decryptV2])
 
+  const byId = useMemo(() => new Map(decrypted.map((m) => [m.id, m])), [decrypted])
+  const rows = useMemo(() => buildRows(decrypted), [decrypted])
+
+  const replyPreviewFor = useCallback(
+    (message: DecryptedMessage): ReplyPreview | null => {
+      if (!message.replyToId) return null
+      const target = byId.get(message.replyToId)
+      if (!target) return null
+      const senderLabel = target.senderId === user?.id ? 'You' : target.senderProfile?.display_name || target.senderProfile?.username || 'Someone'
+      return {
+        senderLabel,
+        text: target.decryptFailed ? "Couldn't decrypt" : target.content,
+        isDeleted: !!target.deletedAt,
+      }
+    },
+    [byId, user?.id],
+  )
+
+  const scrollToMessage = useCallback((_messageId: string) => {
+    // No-op for now: FlatList scroll-to-index for an inverted list with
+    // variable-height rows needs getItemLayout or a measured-offsets map to
+    // be reliable. Tapping a reply quote is a visual affordance for now;
+    // wiring the actual scroll is a follow-up, not a design-pass concern.
+  }, [])
+
   const sendMutation = useMutation({
     mutationFn: sendMessage,
     onSuccess: () => {
@@ -218,30 +268,43 @@ export default function Chat() {
 
   const title = meta?.name || meta?.members.find((m) => m.userId !== user?.id)?.profile.display_name || 'Chat'
 
+  const s = styles(colors, spacing, radii, type)
+
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={styles.header}>
+    <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={s.header}>
         <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>‹ Back</Text>
+          <Text style={s.back}>‹ Back</Text>
         </Pressable>
-        <Text style={styles.title} numberOfLines={1}>
+        <Text style={s.title} numberOfLines={1}>
           {title}
         </Text>
-        <Pressable style={styles.panelButton} onPress={() => conversationId && router.push(`/panel/${conversationId}`)}>
-          <Text style={styles.panelButtonText}>Tools</Text>
+        <Pressable style={s.panelButton} onPress={() => conversationId && router.push(`/panel/${conversationId}`)}>
+          <Text style={s.panelButtonText}>Tools</Text>
         </Pressable>
       </View>
 
       <FlatList
-        style={styles.list}
-        data={decrypted}
+        style={s.list}
+        data={rows}
         inverted
-        keyExtractor={(item) => item.id}
+        keyExtractor={(row) => (row.kind === 'message' ? row.message.id : row.id)}
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
         }}
         onEndReachedThreshold={0.3}
-        renderItem={({ item }) => {
+        renderItem={({ item: row }) => {
+          if (row.kind === 'separator') {
+            return (
+              <View style={s.dateSeparator}>
+                <View style={s.dateSeparatorRule} />
+                <Text style={s.dateSeparatorLabel}>{row.label}</Text>
+                <View style={s.dateSeparatorRule} />
+              </View>
+            )
+          }
+
+          const item = row.message
           const isMine = item.senderId === user?.id
           const isSystem = item.type === 'system'
 
@@ -253,22 +316,24 @@ export default function Chat() {
             if (expired) return null
             const linkTab = !item.decryptFailed ? tabForSystemMessage(item.content) : null
             return (
-              <View style={styles.systemRow}>
-                <Text style={styles.systemText}>{item.decryptFailed ? "Couldn't decrypt" : item.content}</Text>
-                {linkTab && (
-                  <Pressable onPress={() => conversationId && router.push(`/panel/${conversationId}?tab=${linkTab}`)}>
-                    <Text style={styles.systemLink}>Open {linkTab} →</Text>
-                  </Pressable>
-                )}
+              <View style={s.systemRow}>
+                <View style={s.systemPill}>
+                  <Text style={s.systemText}>{item.decryptFailed ? "Couldn't decrypt" : item.content}</Text>
+                  {linkTab && (
+                    <Pressable onPress={() => conversationId && router.push(`/panel/${conversationId}?tab=${linkTab}`)}>
+                      <Text style={s.systemLink}>Open {linkTab} →</Text>
+                    </Pressable>
+                  )}
+                </View>
               </View>
             )
           }
 
           if (item.deletedAt) {
             return (
-              <View style={[styles.bubbleRow, isMine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}>
-                <View style={styles.bubbleDeleted}>
-                  <Text style={styles.bubbleTextDeleted}>Message deleted</Text>
+              <View style={[s.bubbleRow, isMine ? s.bubbleRowMine : s.bubbleRowTheirs]}>
+                <View style={s.bubbleDeleted}>
+                  <Text style={s.bubbleTextDeleted}>Message deleted</Text>
                 </View>
               </View>
             )
@@ -278,8 +343,10 @@ export default function Chat() {
             <MessageBubble
               message={item}
               isMine={isMine}
+              replyPreview={replyPreviewFor(item)}
               onReply={() => setReplyId(item.id)}
               onLongPress={() => setActionTarget(item)}
+              onPressReplyQuote={() => item.replyToId && scrollToMessage(item.replyToId)}
             />
           )
         }}
@@ -294,104 +361,129 @@ export default function Chat() {
       />
 
       {feedback && (
-        <View style={styles.replyStrip}>
-          <Text style={styles.replyText}>{feedback}</Text>
+        <View style={s.replyStrip}>
+          <Text style={s.replyText}>{feedback}</Text>
           <Pressable onPress={() => setFeedback(null)}>
-            <Text style={styles.replyCancel}>✕</Text>
+            <Text style={s.replyCancel}>✕</Text>
           </Pressable>
         </View>
       )}
 
       {replyId && (
-        <View style={styles.replyStrip}>
-          <Text style={styles.replyText} numberOfLines={1}>
+        <View style={s.replyStrip}>
+          <Text style={s.replyText} numberOfLines={1}>
             Replying to a message
           </Text>
           <Pressable onPress={() => setReplyId(null)}>
-            <Text style={styles.replyCancel}>✕</Text>
+            <Text style={s.replyCancel}>✕</Text>
           </Pressable>
         </View>
       )}
 
-      <View style={styles.composer}>
+      <View style={s.composer}>
         <TextInput
-          style={styles.input}
+          style={s.input}
           placeholder="Message…"
-          placeholderTextColor={theme.colors.textMuted}
+          placeholderTextColor={colors.textSubtle}
           value={text}
           onChangeText={setText}
           multiline
         />
-        <Pressable style={styles.sendButton} onPress={onSend} disabled={!text.trim()}>
-          <Text style={styles.sendButtonText}>Send</Text>
+        <Pressable onPress={onSend} disabled={!text.trim()} style={({ pressed }) => [{ opacity: !text.trim() ? 0.4 : pressed ? 0.85 : 1 }]}>
+          <LinearGradient colors={[colors.primary, colors.primaryDark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.sendButton}>
+            <Text style={s.sendButtonText}>➤</Text>
+          </LinearGradient>
         </Pressable>
       </View>
     </KeyboardAvoidingView>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 56,
-    paddingHorizontal: theme.spacing.md,
-    paddingBottom: theme.spacing.sm,
-  },
-  back: { color: theme.colors.accent, width: 50 },
-  panelButton: { width: 50, alignItems: 'flex-end' },
-  panelButtonText: { color: theme.colors.accent, ...theme.type.label },
-  title: { color: theme.colors.text, ...theme.type.heading, fontSize: 16, flex: 1, textAlign: 'center' },
-  list: { flex: 1, paddingHorizontal: theme.spacing.sm },
-  bubbleRow: { marginVertical: 3, flexDirection: 'row' },
-  bubbleRowMine: { justifyContent: 'flex-end' },
-  bubbleRowTheirs: { justifyContent: 'flex-start' },
-  bubbleDeleted: {
-    maxWidth: 280,
-    borderRadius: theme.radii.bubble,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  bubbleTextDeleted: { color: theme.colors.textMuted, ...theme.type.body, fontStyle: 'italic' },
-  systemRow: { alignItems: 'center', marginVertical: 6 },
-  systemText: { color: theme.colors.textMuted, ...theme.type.caption },
-  systemLink: { color: theme.colors.accent, ...theme.type.caption, fontWeight: '700', marginTop: 2 },
-  replyStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: theme.colors.surface,
-    marginHorizontal: theme.spacing.sm,
-    borderRadius: theme.radii.sm,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 6,
-  },
-  replyText: { color: theme.colors.textMuted, flex: 1 },
-  replyCancel: { color: theme.colors.textMuted, paddingHorizontal: 8 },
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    padding: theme.spacing.sm,
-    gap: theme.spacing.sm,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    borderRadius: theme.radii.md,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 10,
-    maxHeight: 120,
-  },
-  sendButton: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radii.md,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 10,
-  },
-  sendButtonText: { color: theme.colors.text, fontWeight: '700' },
-})
+type Colors = ReturnType<typeof useAppTheme>['colors']
+type Spacing = ReturnType<typeof useAppTheme>['spacing']
+type Radii = ReturnType<typeof useAppTheme>['radii']
+type Type = ReturnType<typeof useAppTheme>['type']
+
+const styles = (colors: Colors, spacing: Spacing, radii: Radii, type: Type) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingTop: 56,
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.sm,
+      backgroundColor: colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    back: { color: colors.primaryText, width: 50 },
+    panelButton: { width: 50, alignItems: 'flex-end' },
+    panelButtonText: { color: colors.primaryText, ...type.label },
+    title: { color: colors.text, ...type.heading, fontSize: 16, flex: 1, textAlign: 'center' },
+    list: { flex: 1, paddingHorizontal: spacing.sm },
+    dateSeparator: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginVertical: spacing.md },
+    dateSeparatorRule: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+    dateSeparatorLabel: { color: colors.textSubtle, ...type.caption, fontWeight: '600', paddingHorizontal: spacing.xs },
+    bubbleRow: { marginVertical: 3, flexDirection: 'row' },
+    bubbleRowMine: { justifyContent: 'flex-end' },
+    bubbleRowTheirs: { justifyContent: 'flex-start' },
+    bubbleDeleted: {
+      maxWidth: '65%',
+      borderRadius: radii.bubble,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.tint,
+    },
+    bubbleTextDeleted: { color: colors.textSubtle, ...type.body, fontStyle: 'italic' },
+    systemRow: { alignItems: 'center', marginVertical: 6 },
+    systemPill: {
+      alignItems: 'center',
+      backgroundColor: colors.tint,
+      borderRadius: radii.pill,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      maxWidth: 320,
+    },
+    systemText: { color: colors.textMuted, ...type.caption, textAlign: 'center' },
+    systemLink: { color: colors.primaryText, ...type.caption, fontWeight: '700', marginTop: 2, textDecorationLine: 'underline' },
+    replyStrip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: colors.primaryTint,
+      marginHorizontal: spacing.sm,
+      borderRadius: radii.sm,
+      borderLeftWidth: 2,
+      borderLeftColor: colors.primary,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+    },
+    replyText: { color: colors.textMuted, flex: 1 },
+    replyCancel: { color: colors.textMuted, paddingHorizontal: 8 },
+    composer: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      padding: spacing.sm,
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    input: {
+      flex: 1,
+      backgroundColor: colors.tint,
+      color: colors.text,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.bubble,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+      maxHeight: 120,
+    },
+    sendButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    sendButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  })

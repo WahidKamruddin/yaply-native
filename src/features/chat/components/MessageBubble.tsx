@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   Easing,
@@ -10,24 +10,37 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
-import { theme } from '../../../theme'
+import { useAppTheme } from '../../../theme/ThemeProvider'
 import type { DecryptedMessage } from '../types'
 
 const REPLY_THRESHOLD = 64
 const REPLY_ICON_MAX_OFFSET = 90
 
+// What MessageBubble needs to know about the message being replied to —
+// resolved by the chat screen (which already has the full decrypted list)
+// and passed down, since the bubble itself only knows its own content.
+export interface ReplyPreview {
+  senderLabel: string
+  text: string
+  isDeleted: boolean
+}
+
 interface Props {
   message: DecryptedMessage
   isMine: boolean
+  replyPreview?: ReplyPreview | null
   onReply: () => void
   onLongPress: () => void
+  onPressReplyQuote?: () => void
 }
 
-// Messenger-esque bubble: fades/slides in on mount, and swiping right reveals
-// a reply icon that fires onReply past a threshold, springing back either
-// way. Own-message bubbles fill with a coral-to-amber gradient; others are
-// flat surface color.
-export function MessageBubble({ message, isMine, onReply, onLongPress }: Props) {
+// Fades/slides in on mount; swiping right reveals a reply icon that fires
+// onReply past a threshold, springing back either way (mobile-idiomatic —
+// web's equivalent is a desktop right-click, which doesn't translate).
+// Bubble shape/color otherwise matches web exactly: rounded-2xl with the
+// sender-side corner squashed into a "tail," primary->primary-dark gradient
+// on own messages, flat card+border-soft on others.
+export function MessageBubble({ message, isMine, replyPreview, onReply, onLongPress, onPressReplyQuote }: Props) {
   const entrance = useSharedValue(0)
   const translateX = useSharedValue(0)
   const replyIconOpacity = useSharedValue(0)
@@ -66,17 +79,57 @@ export function MessageBubble({ message, isMine, onReply, onLongPress }: Props) 
     transform: [{ scale: 0.6 + replyIconOpacity.value * 0.4 }],
   }))
 
+  const { colors } = useAppTheme()
+
   return (
     <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
-      <Animated.View pointerEvents="none" style={[styles.replyIcon, replyIconStyle]}>
-        <Text style={styles.replyIconText}>↩</Text>
+      <Animated.View pointerEvents="none" style={[styles.replyIcon, replyIconStyle, { backgroundColor: colors.card }]}>
+        <Text style={[styles.replyIconText, { color: colors.primaryText }]}>↩</Text>
       </Animated.View>
       <GestureDetector gesture={pan}>
-        <Animated.View style={[styles.bubbleWrapper, bubbleStyle]}>
+        <Animated.View style={[styles.bubbleWrapper, bubbleStyle, isMine ? styles.wrapperMine : styles.wrapperTheirs]}>
+          {replyPreview && (
+            <ReplyQuote preview={replyPreview} isMine={isMine} onPress={onPressReplyQuote} />
+          )}
           <BubbleContent message={message} isMine={isMine} onLongPress={onLongPress} />
         </Animated.View>
       </GestureDetector>
     </View>
+  )
+}
+
+function ReplyQuote({ preview, isMine, onPress }: { preview: ReplyPreview; isMine: boolean; onPress?: () => void }) {
+  const { colors, radii, type } = useAppTheme()
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.replyQuote,
+        {
+          backgroundColor: colors.primaryTint,
+          borderColor: colors.border,
+          borderRadius: radii.bubble,
+          alignSelf: isMine ? 'flex-end' : 'flex-start',
+        },
+      ]}
+    >
+      <View style={[styles.replyQuoteBar, { backgroundColor: colors.primary }]} />
+      <View style={styles.replyQuoteText}>
+        <Text style={[styles.replyQuoteSender, { color: colors.primaryText, ...type.caption, fontWeight: '600' }]} numberOfLines={1}>
+          {preview.senderLabel}
+        </Text>
+        <Text
+          style={[
+            styles.replyQuotePreview,
+            { color: colors.textSubtle, ...type.caption },
+            preview.isDeleted && styles.replyQuoteDeleted,
+          ]}
+          numberOfLines={1}
+        >
+          {preview.isDeleted ? 'Message deleted' : preview.text}
+        </Text>
+      </View>
+    </Pressable>
   )
 }
 
@@ -89,6 +142,8 @@ function BubbleContent({
   isMine: boolean
   onLongPress: () => void
 }) {
+  const { colors, radii, type } = useAppTheme()
+  const [showTime, setShowTime] = useState(false)
   const longPress = Gesture.LongPress()
     .minDuration(350)
     .onStart(() => runOnJS(onLongPress)())
@@ -96,53 +151,76 @@ function BubbleContent({
   const text = message.decryptFailed ? "Couldn't decrypt this message" : message.content
   const time = new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
+  // Three corners at the full bubble radius, sender-side corner squashed to
+  // a small "tail" — matches web's rounded-2xl + rounded-br-sm/rounded-bl-sm.
+  const shapeStyle = isMine
+    ? { borderTopLeftRadius: radii.bubble, borderTopRightRadius: radii.bubble, borderBottomLeftRadius: radii.bubble, borderBottomRightRadius: radii.bubbleTail }
+    : { borderTopLeftRadius: radii.bubble, borderTopRightRadius: radii.bubble, borderBottomRightRadius: radii.bubble, borderBottomLeftRadius: radii.bubbleTail }
+
   const inner = (
-    <View style={styles.bubbleInner}>
-      <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{text}</Text>
-      <Text style={[styles.timestamp, isMine && styles.timestampMine]}>{time}</Text>
-    </View>
+    <Pressable onPress={() => setShowTime((v) => !v)} style={[styles.bubbleInner, { paddingHorizontal: 14, paddingVertical: 8 }]}>
+      <Text style={[styles.bubbleText, { ...type.body }, isMine ? styles.bubbleTextMine : { color: colors.text }]}>{text}</Text>
+      {showTime && (
+        <Text
+          style={[
+            styles.timestamp,
+            { ...type.caption, marginTop: 2, alignSelf: 'flex-end' },
+            isMine ? styles.timestampMine : { color: colors.textSubtle },
+          ]}
+        >
+          {time}
+        </Text>
+      )}
+    </Pressable>
   )
 
   return (
     <GestureDetector gesture={longPress}>
       {isMine ? (
         <LinearGradient
-          colors={theme.gradient.bubbleOwn}
+          colors={[colors.primary, colors.primaryDark]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.bubble, styles.bubbleMine]}
+          style={[styles.bubble, shapeStyle]}
         >
           {inner}
         </LinearGradient>
       ) : (
-        <View style={[styles.bubble, styles.bubbleTheirs]}>{inner}</View>
+        <View style={[styles.bubble, shapeStyle, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.borderSoft }]}>
+          {inner}
+        </View>
       )}
     </GestureDetector>
   )
 }
 
 const styles = StyleSheet.create({
-  row: { marginVertical: 3, flexDirection: 'row', alignItems: 'center' },
+  row: { marginVertical: 3, flexDirection: 'row', alignItems: 'flex-end' },
   rowMine: { justifyContent: 'flex-end' },
   rowTheirs: { justifyContent: 'flex-start' },
-  bubbleWrapper: { maxWidth: '100%' },
+  bubbleWrapper: { maxWidth: '65%' },
+  wrapperMine: { alignItems: 'flex-end' },
+  wrapperTheirs: { alignItems: 'flex-start' },
   replyIcon: {
     position: 'absolute',
-    left: theme.spacing.sm,
+    left: 8,
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: theme.colors.surfaceRaised,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  replyIconText: { color: theme.colors.accentSoft, fontSize: 14 },
-  bubble: { maxWidth: 280, borderRadius: theme.radii.bubble, overflow: 'hidden' },
-  bubbleMine: {},
-  bubbleTheirs: { backgroundColor: theme.colors.bubbleOther },
-  bubbleInner: { paddingHorizontal: 14, paddingVertical: 8 },
-  bubbleText: { color: theme.colors.text, ...theme.type.body },
-  bubbleTextMine: { color: '#1a0f0c' },
-  timestamp: { color: theme.colors.textMuted, ...theme.type.caption, marginTop: 2, alignSelf: 'flex-end' },
-  timestampMine: { color: 'rgba(26,15,12,0.6)' },
+  replyIconText: { fontSize: 14 },
+  bubble: { overflow: 'hidden' },
+  bubbleInner: {},
+  bubbleText: {},
+  bubbleTextMine: { color: '#ffffff' },
+  timestamp: {},
+  timestampMine: { color: 'rgba(255,255,255,0.7)' },
+  replyQuote: { flexDirection: 'row', alignItems: 'stretch', maxWidth: 220, marginBottom: 4, borderWidth: 1 },
+  replyQuoteBar: { width: 2, borderRadius: 1, marginVertical: 8, marginLeft: 8 },
+  replyQuoteText: { paddingVertical: 8, paddingRight: 12, paddingLeft: 8, minWidth: 0, flexShrink: 1 },
+  replyQuoteSender: { marginBottom: 2 },
+  replyQuotePreview: {},
+  replyQuoteDeleted: { fontStyle: 'italic' },
 })

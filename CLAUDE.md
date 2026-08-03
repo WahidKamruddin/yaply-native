@@ -125,27 +125,39 @@ Keys are stored as **JWK JSON** (matching web and the deprecated iOS app).
 | Backend | `@supabase/supabase-js` + `@react-native-async-storage/async-storage` (session persistence) + `react-native-url-polyfill/auto` | Same Supabase project as web — zero backend changes needed. |
 | Crypto | `@noble/curves/p256`, `@noble/ciphers/aes`, `react-native-get-random-values` | See Encryption section above. |
 | Key storage | `expo-secure-store` | iOS Keychain / Android Keystore under the hood — RN equivalent of web's IndexedDB and the deprecated iOS app's Keychain usage. |
-| Styling | Custom `theme.ts` (StyleSheet-based design tokens) + `expo-linear-gradient` for bubble fills | See Design Direction below — deliberately not inherited from web's blue-slate palette or the deprecated iOS app's system defaults. |
-| Animation / gesture | `react-native-reanimated` + `react-native-gesture-handler` | Powers swipe-to-reply and animated bubble entrance/action-sheet in `src/features/chat/components/` — the interaction language that reads as "Messenger-esque." |
+| Styling | `src/theme/` (Context-based `ThemeProvider`/`useAppTheme`, dark+light) + `expo-linear-gradient` for gradient fills + `expo-blur` for glassmorphic surfaces | Palette is ported directly from web's `styles.css` — see Design Direction below. |
+| Icons | `@expo/vector-icons` (Feather set) | Avatar fallback icon, theme toggle sun/moon. |
+| SVG | `react-native-svg` | Renders `YaplyLogo`'s exact path/gradient from web's `YaplyLogo.tsx`. |
+| Fonts | `expo-font` + self-sourced `assets/fonts/BricolageGrotesque.ttf` | Display typeface, loaded via `useFonts` in `app/_layout.tsx`. See Design Direction for the `.woff2`-vs-`.ttf` note. |
+| Animation / gesture | `react-native-reanimated` + `react-native-gesture-handler` | Powers swipe-to-reply and animated bubble entrance/action-sheet/dialogs in `src/features/chat/components/` and `src/components/`. |
 | Notifications | `expo-notifications` (local scheduling for reminders now; remote push is future work) | See Feature Map. |
 
 ---
 
 ## Design Direction
 
-There is no iOS-app equivalent of this section — it's new. The move off SwiftUI was explicitly about wanting more design control, aimed at a **Meta Messenger–esque** feel: bold, colorful message bubbles, fluid gesture-driven interactions (swipe to reply/react, long-press for actions), and room for per-conversation theming (e.g. a per-thread accent color, the way Messenger lets you pick a chat color).
+**Reversed after Phase 4.** Phase 4 shipped a custom "Meta Messenger–esque" palette (coral-to-amber gradient bubbles, `colorForConversation` per-conversation accent avatars) explicitly *not* modeled on web's palette, on the theory that moving off SwiftUI was partly about wanting design freedom. The user later said that read as "completely off" from yaply's actual brand — the app needs to actually look like yaply, not a generic reskin. So this app's design system was rebuilt to faithfully port web's real, already-established palette and component patterns instead of inventing a new one. Three research passes read web's actual source (`src/styles.css`'s Tailwind `@theme` tokens, `MessageBubble.tsx`/`ChatView.tsx`/`ConversationList.tsx`/`Avatar.tsx`, `auth.tsx` + `YaplyLogo.tsx`) to extract this as ground truth — every value below is copied from web, not invented. (Web's marketing landing page, `src/routes/index.tsx`, is intentionally excluded — it's web's own separately-documented, decoupled design system.)
 
-**Deliberately not carried over:**
-- Web's blue-slate palette (`#1a2744`, `#5b8def`, `#dce7f8`, `#edf1fa`) is *not* the default for yaply-native. It can be referenced for brand consistency, but the palette here is a separate design decision.
-- The deprecated iOS app's SwiftUI system-default look (native alerts, plain `NavigationStack` chrome, `Color+Yaply` extension) is not the target — this app uses custom components (animated popovers instead of native `Alert`, custom bubble/reaction UI) throughout.
+**Theming architecture** — `src/theme/`:
+- `tokens.ts` — dark/light color tables (dark is the default, matching web), spacing/radii/type scale.
+- `ThemeProvider.tsx` — React Context; `mode` initializes from `AsyncStorage` (key `yaply-theme`, same name as web's `localStorage` key for conceptual parity) falling back to `useColorScheme()` (RN's `prefers-color-scheme` equivalent), with a persisted `toggle()`. `useAppTheme()` is the hook every themed component calls — there is no static `theme` export anymore; `StyleSheet.create` calls that need theme values are wrapped in a function called with the live theme inside the component body, since `StyleSheet.create` can't be dynamic at module scope.
+- A sun/moon toggle button lives in the conversation list header, next to sign-out — mirrors web's `BottomBar.tsx` toggle.
 
-**Status (Phase 4 design pass, done):** `theme.ts` landed a real palette — near-black charcoal-violet background (`#0d0d14`) with a coral-to-amber gradient (`#ff6a5c` → `#ffab52`, via `expo-linear-gradient`) for own-message bubbles, flat dark surface for others' bubbles. Chosen specifically to read as warm/energetic rather than the cold blue that both web (`#5b8def`) and default Messenger use — a deliberate differentiator, not an accident. `colorForConversation(id)` deterministically maps each conversation to one of 8 accent colors (coral/amber/blue/violet/teal/pink/gold/green) for avatars — groundwork for Messenger-style "pick a chat color," with no settings UI to override it yet (every install shows the same color for the same conversation, which is what makes the list visually scannable without added state). No custom font file loaded — system font with a weight/size scale (`theme.type`) stands in for a type system; adding a real font needs an asset + `expo-font` wiring, judged not worth doing before a real design review.
+**Palette** (dark / light — see `src/theme/tokens.ts` for the full table): background `#070d1a` / `#edf1fa`, surface `#0a1120` / `#ffffff`, card `#0d1526` / `#ffffff`, primary `#5b8def` (both modes), primary-dark `#3b6fe0` / `#4a7de4`, text `#e9eefb` / `#1a2744`, danger `#ff8080` / `#ef4444`. Own-message bubbles and primary buttons use a diagonal `primary → primary-dark` gradient (`expo-linear-gradient`), matching web's `bg-gradient-to-br`. Delete-confirm buttons use a literal red (`#ef4444`/`#dc2626`) rather than the `danger` token — web itself has this inconsistency; it's reproduced faithfully here, not "fixed."
 
-**Interaction layer (Phase 4, done):** `react-native-reanimated` + `react-native-gesture-handler` power two custom components in `src/features/chat/components/`:
-- `MessageBubble.tsx` — fade/slide-in entrance on mount; swipe-right-to-reply (reveals a small reply icon behind the bubble, fires past a 64pt threshold, springs back either way — one gesture direction only, not iOS's separate swipe-left-for-timestamp gesture; timestamps are just always shown in a caption under each bubble instead, a deliberate simplification over doing two competing pan gestures on one view without a device to tune them against).
-- `MessageActionSheet.tsx` — replaces the native `Alert` used in Phase 2 for delete-confirm with a custom animated bottom sheet (Reply / Delete / Cancel), matching "no native alerts/sheets" above.
+**`colorForConversation` is gone.** Avatars are now `src/components/Avatar.tsx` — a flat `tint-strong` circle with a centered person-silhouette icon (`Feather` `"user"`, never initials, never a per-conversation hue) and an optional fixed-10px online-status dot, ported directly from web's `Avatar.tsx`.
 
-Both were verified to actually compile through Metro (`expo export --platform ios`, worklets included) — not just type-check — since Reanimated's Babel plugin (auto-included by `babel-preset-expo`) is exactly the kind of thing that type-checks fine and then fails at bundle time if misconfigured.
+**Logo:** `src/components/YaplyLogo.tsx` renders web's exact abstract two-blob mark (not a letterform) via `react-native-svg` — same `196×218` path data and `#6BA8FF → #3B6FE0` gradient vector as `YaplyLogo.tsx` on web, copied verbatim.
+
+**Typography:** Bricolage Grotesque for display/heading text (`theme.type.title`/`.heading`), system font for body/label/caption. Web self-hosts a `.woff2`; **React Native can't load `.woff2` as a native font**, so `assets/fonts/BricolageGrotesque.ttf` is a separately-sourced variable-weight TTF (OFL-licensed, fetched from Google Fonts' GitHub release — same typeface, different file format), loaded via `expo-font`'s `useFonts` in `app/_layout.tsx`. **Known limitation:** RN's font-weight selection on a single variable-font file isn't guaranteed to work the way CSS does on web — text tagged `BricolageGrotesque` may render at the font's default instance regardless of the `fontWeight` in `theme.type`. Not verified on a real device in this environment; flagged here rather than assumed fixed.
+
+**Bubble shape:** `MessageBubble.tsx` uses three full-radius (16px) corners plus a squashed ~3px "tail" corner on the sender side (bottom-right for own, bottom-left for other) — matches web's `rounded-2xl` + `rounded-br-sm`/`rounded-bl-sm`. Reply-quote blocks (left accent bar in `primary`, `primary-tint` background) now render above a bubble when `replyToId` is set — this wasn't rendered at all before the palette made it worth doing properly. Tapping a bubble toggles a tap-to-reveal timestamp (matches web), replacing the always-visible caption from Phase 4.
+
+**Auth screens:** `src/components/AuthScreen.tsx` is a shared shell (decorative blurred gradient orbs via `expo-blur`'s `BlurView`, glassmorphic card, centered `YaplyLogo`) used by both `sign-in.tsx` and `sign-up.tsx` — the two stayed separate routes (a deliberate choice, unlike web's single-page mode-toggle), but now share web's actual visual language: full-pill gradient submit button, tint/border inputs with a `primary`-colored focus state.
+
+**Interaction layer** (unchanged from Phase 4, recolored): `react-native-reanimated` + `react-native-gesture-handler` power `MessageBubble.tsx` (fade/slide-in entrance, swipe-right-to-reply — one gesture direction, a mobile-idiomatic adaptation since web's equivalent is a desktop right-click menu that doesn't translate) and `MessageActionSheet.tsx`/`ConfirmDialog.tsx` (custom animated sheets/dialogs replacing native `Alert`, now styled with web's exact `card`/`border`/shadow tokens and its literal-red destructive button).
+
+Verified to actually compile through Metro (`expo export --platform ios`, all new native modules — `react-native-svg`, `expo-blur`, `@expo/vector-icons`, the font asset — bundled successfully), not just type-checked. **Not verified visually on a simulator/device in this environment** — static token/shape matching against the extracted web spec is as far as this pass could confirm; a real device check is the natural next step.
 
 ---
 
@@ -234,12 +246,19 @@ yaply-native/
 │   └── panel/[id].tsx               ← "conversation tools" tabbed screen (Tasks/Notes/Reminders/Events/Albums/Budgets)
 ├── scripts/
 │   └── verify-web-interop.ts       ← dev-only cross-runtime crypto check, `npm run verify:interop`
+├── assets/fonts/BricolageGrotesque.ttf  ← self-sourced .ttf (web uses a .woff2 — RN can't load that), see Design Direction
 ├── src/
 │   ├── crypto/                     ← base64.ts, jwk.ts, keys.ts, envelope.ts, keyStore.ts (see Encryption section)
 │   ├── lib/
 │   │   └── supabase.ts             ← Supabase client singleton
+│   ├── theme/
+│   │   ├── tokens.ts                ← dark/light color tables ported from web's styles.css, spacing/radii/type
+│   │   └── ThemeProvider.tsx        ← Context + AsyncStorage persistence + useColorScheme fallback; useAppTheme() hook
 │   ├── components/
-│   │   └── ConfirmDialog.tsx       ← generic animated confirm sheet, used by the panel's delete flows
+│   │   ├── Avatar.tsx               ← flat icon-fallback avatar, ported from web's Avatar.tsx
+│   │   ├── YaplyLogo.tsx            ← react-native-svg port of web's exact logo path/gradient
+│   │   ├── AuthScreen.tsx           ← shared glassmorphic shell + AuthInput/AuthButton for sign-in/sign-up
+│   │   └── ConfirmDialog.tsx        ← generic animated confirm dialog, used by the panel's delete flows
 │   ├── features/
 │   │   ├── auth/useAuth.ts
 │   │   ├── chat/                   ← api/, components/ (MessageBubble, MessageActionSheet), hooks/, store/, types.ts
@@ -248,7 +267,6 @@ yaply-native/
 │   │       ├── hooks/               ← useTasks, useNotes, useReminders, useEvents, useAlbums, useBudgets
 │   │       ├── notifications.ts     ← expo-notifications scheduling for reminders
 │   │       └── systemMessage.ts     ← posts the type='system' message on entity creation
-│   └── theme.ts                    ← design tokens + colorForConversation (see Design Direction)
 └── .env.example                    ← EXPO_PUBLIC_* vars, see Configuration
 ```
 
